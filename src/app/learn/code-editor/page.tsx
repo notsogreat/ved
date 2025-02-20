@@ -50,6 +50,8 @@ func main() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [isProgressBarOpen, setIsProgressBarOpen] = useState(true)
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [error, setError] = useState<string>('')
 
   const handleRunCode = async () => {
     setIsRunning(true)
@@ -121,6 +123,34 @@ func main() {
       toast.error("Failed to generate question")
     } finally {
       setIsGenerating(false)
+    }
+  }
+
+  const executeCode = async (code: string, language: string) => {
+    setIsExecuting(true)
+    setOutput('')
+    setError('')
+
+    try {
+      const response = await fetch('/api/code-execution', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code, language }),
+      })
+
+      const result = await response.json()
+
+      if (result.error) {
+        setError(result.error)
+      } else {
+        setOutput(result.output)
+      }
+    } catch (err) {
+      setError('Failed to execute code')
+    } finally {
+      setIsExecuting(false)
     }
   }
 
@@ -252,13 +282,13 @@ Output: ${example.output}${example.explanation ? `\nExplanation: ${example.expla
                 </Button>
                 <Button
                   size="sm"
-                  onClick={handleRunCode}
-                  disabled={isRunning}
+                  onClick={() => executeCode(code, 'go')}
+                  disabled={isExecuting}
                 >
-                  {isRunning ? (
+                  {isExecuting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Running...
+                      Executing...
                     </>
                   ) : (
                     <>
@@ -305,6 +335,13 @@ Output: ${example.output}${example.explanation ? `\nExplanation: ${example.expla
               </div>
             </div>
           </div>
+
+          {error && (
+            <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
+              <h3 className="font-semibold mb-2">Error:</h3>
+              <pre className="whitespace-pre-wrap">{error}</pre>
+            </div>
+          )}
         </div>
       </div>
     </div>
