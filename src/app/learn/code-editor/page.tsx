@@ -44,48 +44,12 @@ func main() {
     // Your Go code here
 }`)
   const [output, setOutput] = useState('')
-  const [isRunning, setIsRunning] = useState(false)
-  const [isError, setIsError] = useState(false)
   const [currentStep] = useState(2)
   const [isGenerating, setIsGenerating] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [isProgressBarOpen, setIsProgressBarOpen] = useState(true)
   const [isExecuting, setIsExecuting] = useState(false)
   const [error, setError] = useState<string>('')
-
-  const handleRunCode = async () => {
-    setIsRunning(true)
-    setIsError(false)
-    setOutput('')
-
-    try {
-      const response = await fetch('/api/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          code,
-          language_id: 60 // 60 is Go language ID in Judge0
-        }),
-      })
-      
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Execution failed')
-      
-      if (data.error) {
-        setIsError(true)
-        setOutput(data.error)
-      } else {
-        setOutput(data.output)
-      }
-    } catch (error) {
-      setIsError(true)
-      setOutput(`Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`)
-    } finally {
-      setIsRunning(false)
-    }
-  }
 
   const handleReset = () => {
     setCode(`package main
@@ -96,7 +60,7 @@ func main() {
     // Your Go code here
 }`)
     setOutput('')
-    setIsError(false)
+    setError('')
   }
 
   const handleGenerateQuestion = async () => {
@@ -126,7 +90,7 @@ func main() {
     }
   }
 
-  const executeCode = async (code: string, language: string) => {
+  const executeCode = async (code: string) => {
     setIsExecuting(true)
     setOutput('')
     setError('')
@@ -137,17 +101,35 @@ func main() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ code, language }),
+        body: JSON.stringify({ code }),
       })
 
       const result = await response.json()
+      console.log('Code execution result:', result)
 
       if (result.error) {
-        setError(result.error)
+        const errorMessage = result.error.replace('# command-line-arguments\n', '')
+          .split('\n')
+          .filter(Boolean)
+          .map((line: string) => {
+            if (line.includes('/tmp/main.go:')) {
+              const match = line.match(/\/tmp\/main\.go:(\d+):(\d+):\s(.+)/)
+              if (match) {
+                const [, lineNum, colNum, msg] = match
+                return `Line ${lineNum}, Column ${colNum}: ${msg}`
+              }
+            }
+            return line
+          })
+          .join('\n')
+
+        console.log('Setting error message:', errorMessage)
+        setError(errorMessage)
       } else {
         setOutput(result.output)
       }
     } catch (err) {
+      console.error('Code execution error:', err)
       setError('Failed to execute code')
     } finally {
       setIsExecuting(false)
@@ -275,14 +257,14 @@ Output: ${example.output}${example.explanation ? `\nExplanation: ${example.expla
                   variant="outline" 
                   size="sm"
                   onClick={handleReset}
-                  disabled={isRunning}
+                  disabled={isExecuting}
                 >
                   <RotateCw className="w-4 h-4 mr-1" />
                   Reset
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => executeCode(code, 'go')}
+                  onClick={() => executeCode(code)}
                   disabled={isExecuting}
                 >
                   {isExecuting ? (
@@ -322,12 +304,18 @@ Output: ${example.output}${example.explanation ? `\nExplanation: ${example.expla
 
           <div className="h-48 border-t bg-card">
             <div className="p-4">
-              <h3 className="text-sm font-medium text-muted-foreground mb-2">Output</h3>
+              <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                {error ? 'Compilation Error' : 'Output'}
+              </h3>
               <div className={cn(
-                "h-28 overflow-auto p-4 rounded-lg bg-muted font-mono text-sm",
-                isError ? "bg-destructive/10 text-destructive" : "text-foreground"
+                "h-28 overflow-auto p-4 rounded-lg font-mono text-sm",
+                error 
+                  ? "bg-destructive/10 text-destructive" 
+                  : "bg-muted text-foreground"
               )}>
-                {output ? (
+                {error ? (
+                  <pre className="whitespace-pre-wrap">{error}</pre>
+                ) : output ? (
                   <pre className="whitespace-pre-wrap">{output}</pre>
                 ) : (
                   <span className="text-muted-foreground">Output will appear here...</span>
@@ -335,13 +323,6 @@ Output: ${example.output}${example.explanation ? `\nExplanation: ${example.expla
               </div>
             </div>
           </div>
-
-          {error && (
-            <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
-              <h3 className="font-semibold mb-2">Error:</h3>
-              <pre className="whitespace-pre-wrap">{error}</pre>
-            </div>
-          )}
         </div>
       </div>
     </div>
