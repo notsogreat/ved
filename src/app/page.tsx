@@ -1,11 +1,13 @@
 'use client'
 
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { motion } from "framer-motion"
 import { SpaceBackground } from "@/components/ui/space-background"
 
-export default function Home() {
+export default function HomePage() {
+  const router = useRouter()
+
   return (
     <div className="relative min-h-[calc(100vh-3.5rem)] flex flex-col items-center justify-center bg-background text-foreground p-4 overflow-hidden">
       <SpaceBackground />
@@ -39,11 +41,13 @@ export default function Home() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          <Link href="/learn">
-            <Button size="lg" className="bg-primary hover:bg-primary/90 text-primary-foreground px-8">
-              Start Learning
-            </Button>
-          </Link>
+          <Button 
+            size="lg"
+            onClick={() => router.push('/auth/login?redirect=/learn')}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground px-8"
+          >
+            Let's Go
+          </Button>
         </motion.div>
       </motion.div>
     </div>
