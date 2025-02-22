@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Editor from '@monaco-editor/react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -11,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { VerticalProgressSteps } from '@/components/learning/vertical-progress-steps'
 import ProblemDisplay from '@/components/learning/problem-display'
 import { toast } from "sonner"
+import { AllTopics } from "@/config/topics"
 
 interface Question {
   title: string;
@@ -27,15 +29,21 @@ interface Question {
   }>;
 }
 
-const dataStructureSteps = [
-  { title: 'Arrays Basics', status: 'complete' as const },
-  { title: 'Array Operations', status: 'complete' as const },
-  { title: 'Linked Lists', status: 'in-progress' as const },
-  { title: 'Trees', status: 'not-started' as const },
-  { title: 'Graphs', status: 'not-started' as const },
-]
+// First, add this mapping
+const categoryMapping = {
+  'data-structures': 'Data Structures',
+  'algorithms': 'Algorithms',
+  'system-design': 'System Design',
+  'web-development': 'Web Development'
+} as const
 
 export default function CodeEditorPage() {
+  const searchParams = useSearchParams()
+  const urlCategory = searchParams.get('category') || 'data-structures'
+  // Map the URL parameter to the actual category name
+  const category = categoryMapping[urlCategory as keyof typeof categoryMapping] as keyof typeof AllTopics
+  const topicName = searchParams.get('topic') || "Arrays & Strings"
+  
   const [code, setCode] = useState(`package main
 
 import "fmt"
@@ -44,10 +52,9 @@ func main() {
     // Your Go code here
 }`)
   const [output, setOutput] = useState('')
-  const [currentStep] = useState(2)
+  const [isProgressBarOpen, setIsProgressBarOpen] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
-  const [isProgressBarOpen, setIsProgressBarOpen] = useState(true)
   const [isExecuting, setIsExecuting] = useState(false)
   const [error, setError] = useState<string>('')
 
@@ -72,7 +79,8 @@ func main() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          topic: 'algorithms',
+          topic: topicName,
+          category: category,
           difficulty: 'medium'
         }),
       })
@@ -154,8 +162,11 @@ func main() {
         </Button>
         <div className={cn("h-full overflow-y-auto", !isProgressBarOpen && "hidden")}>
           <VerticalProgressSteps 
-            steps={dataStructureSteps}
-            currentStep={currentStep}
+            topics={AllTopics[category]}
+            activeTopic={topicName}
+            onTopicSelect={(topic) => {
+              console.log('Topic selected:', topic)
+            }}
           />
         </div>
       </motion.div>

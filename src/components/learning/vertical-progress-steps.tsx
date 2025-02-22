@@ -1,61 +1,68 @@
 'use client'
 
-import { CheckCircle2, Circle, CircleDot } from "lucide-react"
-import { motion } from "framer-motion"
-import { cn } from "@/lib/utils"
+import { useEffect, useState } from 'react'
 import { Card } from "@/components/ui/card"
-
-interface Step {
-  title: string
-  status: 'complete' | 'in-progress' | 'not-started'
-}
+import { TopicProgress } from "./topic-progress"
+import { Topic } from "@/config/topics"
 
 interface VerticalProgressStepsProps {
-  steps: Step[]
-  currentStep: number
+  topics: Topic[]
+  activeTopic?: string
+  onTopicSelect: (topicName: string) => void
 }
 
-export function VerticalProgressSteps({ steps, currentStep }: VerticalProgressStepsProps) {
+export function VerticalProgressSteps({ topics, activeTopic, onTopicSelect }: VerticalProgressStepsProps) {
+  // This would normally come from your backend/state management
+  const [progress, setProgress] = useState<{
+    [key: string]: {
+      status: 'not-started' | 'in-progress' | 'complete'
+      progress?: number
+    }
+  }>({})
+
+  // Simulate progress data - replace with real data in production
+  useEffect(() => {
+    const mockProgress = topics.reduce((acc, topic) => {
+      acc[topic.name] = {
+        status: topic.name === activeTopic ? 'in-progress' : 'not-started',
+        progress: topic.name === activeTopic ? 60 : 0
+      }
+      
+      if (topic.subtopics) {
+        topic.subtopics.forEach((subtopic, index) => {
+          if (topic.name === activeTopic) {
+            acc[subtopic.name] = {
+              status: index === 0 ? 'complete' : 
+                      index === 1 ? 'in-progress' : 
+                      'not-started',
+              progress: index === 1 ? 45 : 0
+            }
+          } else {
+            acc[subtopic.name] = {
+              status: 'not-started',
+              progress: 0
+            }
+          }
+        })
+      }
+      
+      return acc
+    }, {} as typeof progress)
+
+    setProgress(mockProgress)
+  }, [topics, activeTopic])
+
   return (
-    <Card className="p-4 border bg-card">
+    <Card className="p-4 bg-card">
       <div className="space-y-2">
-        {steps.map((step, index) => (
-          <div key={index} className="flex items-start">
-            <div className="flex flex-col items-center">
-              <div className="flex h-6 w-6 items-center justify-center">
-                {step.status === 'complete' ? (
-                  <CheckCircle2 className="h-6 w-6 text-primary" />
-                ) : step.status === 'in-progress' ? (
-                  <CircleDot className="h-6 w-6 text-primary" />
-                ) : (
-                  <Circle className="h-6 w-6 text-muted-foreground" />
-                )}
-              </div>
-              {index !== steps.length - 1 && (
-                <div className="w-px h-12 bg-border" />
-              )}
-            </div>
-            <div className="ml-4 pb-8">
-              <p className={cn(
-                "text-sm font-medium",
-                step.status === 'complete' ? "text-primary" : 
-                step.status === 'in-progress' ? "text-foreground" : 
-                "text-muted-foreground"
-              )}>
-                {step.title}
-              </p>
-              {step.status === 'in-progress' && (
-                <div className="mt-2">
-                  <div className="h-2 w-32 bg-muted rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-primary transition-all duration-300 ease-in-out"
-                      style={{ width: '60%' }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+        {topics.map((topic, index) => (
+          <TopicProgress
+            key={index}
+            topic={topic}
+            isActive={topic.name === activeTopic}
+            progress={progress}
+            onSelect={() => onTopicSelect(topic.name)}
+          />
         ))}
       </div>
     </Card>
