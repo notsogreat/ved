@@ -100,42 +100,6 @@ export default function CodeEditorPage() {
     setError('')
   }
 
-  const handleGenerateQuestion = async () => {
-    setIsLoading(true)
-    try {
-      const response = await fetch('/api/questions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          topic: topicName,
-          category: category,
-          difficulty: 'medium'
-        }),
-      })
-      
-      const { status, data } = await response.json()
-      if (status === 'success' && data) {
-        setCurrentQuestion({
-          title: data.title,
-          description: data.description,
-          examples: data.examples || [],
-          constraints: data.constraints || [],
-          testCases: data.testCases || []
-        })
-        toast.success("New question generated!")
-      } else {
-        throw new Error('Invalid response format')
-      }
-    } catch (error) {
-      console.error('Error generating question:', error)
-      toast.error("Failed to generate question")
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const executeCode = async (code: string) => {
     setIsExecuting(true)
     setOutput('')
@@ -230,20 +194,6 @@ export default function CodeEditorPage() {
                       <h2 className="text-2xl font-bold text-primary m-0">
                         {currentQuestion?.title || "Loading..."}
                       </h2>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleGenerateQuestion}
-                        disabled={isLoading}
-                        className="flex items-center gap-2"
-                      >
-                        {isLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="h-4 w-4" />
-                        )}
-                        {isLoading ? "Generating..." : "Generate New Question"}
-                      </Button>
                     </div>
                     
                     <p className="text-foreground">
