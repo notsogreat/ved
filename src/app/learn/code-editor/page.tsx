@@ -74,8 +74,18 @@ export default function CodeEditorPage() {
         throw new Error('Failed to fetch question')
       }
 
-      const question = await response.json()
-      setCurrentQuestion(question)
+      const { status, data } = await response.json()
+      if (status === 'success' && data) {
+        setCurrentQuestion({
+          title: data.title,
+          description: data.description,
+          examples: data.examples || [],
+          constraints: data.constraints || [],
+          testCases: data.testCases || []
+        })
+      } else {
+        throw new Error('Invalid response format')
+      }
     } catch (error) {
       console.error('Error fetching question:', error)
       toast.error('Failed to fetch question')
@@ -105,11 +115,19 @@ export default function CodeEditorPage() {
         }),
       })
       
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to generate question')
-      
-      setCurrentQuestion(data)
-      toast.success("New question generated!")
+      const { status, data } = await response.json()
+      if (status === 'success' && data) {
+        setCurrentQuestion({
+          title: data.title,
+          description: data.description,
+          examples: data.examples || [],
+          constraints: data.constraints || [],
+          testCases: data.testCases || []
+        })
+        toast.success("New question generated!")
+      } else {
+        throw new Error('Invalid response format')
+      }
     } catch (error) {
       console.error('Error generating question:', error)
       toast.error("Failed to generate question")
@@ -133,7 +151,6 @@ export default function CodeEditorPage() {
       })
 
       const result = await response.json()
-      console.log('Code execution result:', result)
 
       if (result.error) {
         const errorMessage = result.error.replace('# command-line-arguments\n', '')
@@ -151,7 +168,6 @@ export default function CodeEditorPage() {
           })
           .join('\n')
 
-        console.log('Setting error message:', errorMessage)
         setError(errorMessage)
       } else {
         setOutput(result.output)
@@ -234,7 +250,7 @@ export default function CodeEditorPage() {
                       {currentQuestion?.description}
                     </p>
                     
-                    {currentQuestion?.examples.map((example, index) => (
+                    {currentQuestion?.examples?.map((example, index) => (
                       <div key={index} className="mt-6 bg-muted rounded-lg p-4">
                         <h3 className="text-lg font-semibold text-primary">Example {index + 1}:</h3>
                         <pre className="mt-2 p-3 bg-card rounded-md font-mono text-sm text-foreground border">

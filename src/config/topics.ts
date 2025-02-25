@@ -1,4 +1,4 @@
-export type Difficulty = 'beginner' | 'easy' | 'medium' | 'hard' | 'expert';
+export type Difficulty = 'beginner' | 'easy' | 'medium' | 'hard';
 
 export interface Topic {
   name: string;
