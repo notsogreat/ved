@@ -29,7 +29,11 @@ export default function LoginPage() {
         }),
       })
 
+      const data = await response.json()
       if (!response.ok) throw new Error('Login failed')
+      
+      // Store user data in localStorage
+      localStorage.setItem('userId', data.id)
       
       // Get the redirect URL from the query params
       const searchParams = new URLSearchParams(window.location.search)

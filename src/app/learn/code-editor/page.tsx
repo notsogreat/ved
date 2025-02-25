@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Editor from '@monaco-editor/react'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { VerticalProgressSteps } from '@/components/learning/vertical-progress-s
 import ProblemDisplay from '@/components/learning/problem-display'
 import { toast } from "sonner"
 import { AllTopics } from "@/config/topics"
+import { useRouter } from 'next/navigation'
 
 interface Question {
   title: string;
@@ -44,34 +45,53 @@ export default function CodeEditorPage() {
   const category = categoryMapping[urlCategory as keyof typeof categoryMapping] as keyof typeof AllTopics
   const topicName = searchParams.get('topic') || "Arrays & Strings"
   
-  const [code, setCode] = useState(`package main
-
-import "fmt"
-
-func main() {
-    // Your Go code here
-}`)
+  const [code, setCode] = useState(`package main\n\nimport "fmt"\n\nfunc main() {\n    // Your Go code here\n}`)
   const [output, setOutput] = useState('')
   const [isProgressBarOpen, setIsProgressBarOpen] = useState(true)
-  const [isGenerating, setIsGenerating] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null)
   const [isExecuting, setIsExecuting] = useState(false)
   const [error, setError] = useState<string>('')
+  const router = useRouter()
+
+  // Fetch question when component mounts
+  useEffect(() => {
+    fetchQuestion()
+  }, [urlCategory, topicName])
+
+  const fetchQuestion = async () => {
+    setIsLoading(true)
+    try {
+      const userId = localStorage.getItem('userId')
+      if (!userId) {
+        router.push('/auth/login?redirect=/learn/code-editor')
+        return
+      }
+
+      const response = await fetch(`/api/questions/${urlCategory}?userId=${userId}`)
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch question')
+      }
+
+      const question = await response.json()
+      setCurrentQuestion(question)
+    } catch (error) {
+      console.error('Error fetching question:', error)
+      toast.error('Failed to fetch question')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleReset = () => {
-    setCode(`package main
-
-import "fmt"
-
-func main() {
-    // Your Go code here
-}`)
+    setCode(`package main\n\nimport "fmt"\n\nfunc main() {\n    // Your Go code here\n}`)
     setOutput('')
     setError('')
   }
 
   const handleGenerateQuestion = async () => {
-    setIsGenerating(true)
+    setIsLoading(true)
     try {
       const response = await fetch('/api/questions', {
         method: 'POST',
@@ -94,7 +114,7 @@ func main() {
       console.error('Error generating question:', error)
       toast.error("Failed to generate question")
     } finally {
-      setIsGenerating(false)
+      setIsLoading(false)
     }
   }
 
@@ -184,59 +204,57 @@ func main() {
               </TabsList>
 
               <TabsContent value="problem" className="p-6 h-[calc(100%-3rem)] overflow-y-auto">
-                <div className="prose dark:prose-invert max-w-none">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-primary m-0">
-                      {currentQuestion?.title || "Array Reversal"}
-                    </h2>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleGenerateQuestion}
-                      disabled={isGenerating}
-                      className="flex items-center gap-2"
-                    >
-                      {isGenerating ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
-                      {isGenerating ? "Generating..." : "Generate New Question"}
-                    </Button>
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <Loader2 className="h-8 w-8 animate-spin" />
                   </div>
-                  
-                  <p className="text-foreground">
-                    {currentQuestion?.description || 
-                      "Write a Go program that reverses an array of integers without using any built-in reverse functions."}
-                  </p>
-                  
-                  {(currentQuestion?.examples || [{
-                    input: "[1, 2, 3, 4, 5]",
-                    output: "[5, 4, 3, 2, 1]",
-                    explanation: ""
-                  }]).map((example, index) => (
-                    <div key={index} className="mt-6 bg-muted rounded-lg p-4">
-                      <h3 className="text-lg font-semibold text-primary">Example {index + 1}:</h3>
-                      <pre className="mt-2 p-3 bg-card rounded-md font-mono text-sm text-foreground border">
-{`Input: ${example.input}
-Output: ${example.output}${example.explanation ? `\nExplanation: ${example.explanation}` : ''}`}</pre>
+                ) : (
+                  <div className="prose dark:prose-invert max-w-none">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-2xl font-bold text-primary m-0">
+                        {currentQuestion?.title || "Loading..."}
+                      </h2>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleGenerateQuestion}
+                        disabled={isLoading}
+                        className="flex items-center gap-2"
+                      >
+                        {isLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        {isLoading ? "Generating..." : "Generate New Question"}
+                      </Button>
                     </div>
-                  ))}
+                    
+                    <p className="text-foreground">
+                      {currentQuestion?.description}
+                    </p>
+                    
+                    {currentQuestion?.examples.map((example, index) => (
+                      <div key={index} className="mt-6 bg-muted rounded-lg p-4">
+                        <h3 className="text-lg font-semibold text-primary">Example {index + 1}:</h3>
+                        <pre className="mt-2 p-3 bg-card rounded-md font-mono text-sm text-foreground border">
+                          {`Input: ${example.input}\nOutput: ${example.output}${example.explanation ? `\nExplanation: ${example.explanation}` : ''}`}
+                        </pre>
+                      </div>
+                    ))}
 
-                  <div className="mt-6 space-y-4">
-                    <h3 className="text-lg font-semibold text-primary">Constraints:</h3>
-                    <ul className="list-disc list-inside text-muted-foreground text-sm space-y-2 ml-2">
-                      {currentQuestion?.constraints?.map((constraint, index) => (
-                        <li key={index}>{constraint}</li>
-                      )) || (
-                        <>
-                          <li>1 ≤ array length ≤ 10⁵</li>
-                          <li>-10⁹ ≤ elements ≤ 10⁹</li>
-                        </>
-                      )}
-                    </ul>
+                    {currentQuestion?.constraints && (
+                      <div className="mt-6 space-y-4">
+                        <h3 className="text-lg font-semibold text-primary">Constraints:</h3>
+                        <ul className="list-disc list-inside text-muted-foreground text-sm space-y-2 ml-2">
+                          {currentQuestion.constraints.map((constraint, index) => (
+                            <li key={index}>{constraint}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
               </TabsContent>
               <TabsContent value="hints" className="p-4">
                 <div className="space-y-4">
