@@ -2,13 +2,18 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { QuestionService } from '@/lib/openai/services/question-service';
 
+interface RouteContext {
+  params: Promise<{ id: string }> | { id: string };
+}
+
 export async function GET(
   request: Request,
-  context: { params: { id: string } }
+  { params }: RouteContext
 ) {
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get('userId');
-  const topicId = await context.params.id;
+  const resolvedParams = await Promise.resolve(params);
+  const topicId = resolvedParams.id;
 
   if (!userId) {
     return NextResponse.json(
