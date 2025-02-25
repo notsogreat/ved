@@ -24,36 +24,25 @@ model User {
 }
 
 model Topic {
-  id            String    @id @default(uuid()) @db.Uuid
+  id            String    @id @db.Text
   name          String
   category      String
   difficulty    Difficulty
   prerequisites String[]
-  subtopics     Subtopic[]
+  description   String?
+  parentId      String?   @db.Text @map("parentId")
+  parent        Topic?    @relation("TopicToTopic", fields: [parentId], references: [id], onDelete: SetNull)
+  children      Topic[]   @relation("TopicToTopic")
   progress      Progress[]
   questions     Question[]
 
   @@map("topics")
 }
 
-model Subtopic {
-  id            String    @id @default(uuid()) @db.Uuid
-  topicId       String    @map("topic_id") @db.Uuid
-  name          String
-  difficulty    Difficulty
-  prerequisites String[]
-  topic         Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  progress      Progress[]
-  questions     Question[]
-
-  @@map("subtopics")
-}
-
 model Progress {
   id                String    @id @default(uuid()) @db.Uuid
   userId           String    @map("user_id") @db.Uuid
-  topicId          String    @map("topic_id") @db.Uuid
-  subtopicId       String?   @map("subtopic_id") @db.Uuid
+  topicId          String    @map("topic_id") @db.Text
   status           Status
   progressPercentage Int      @map("progress_percentage")
   completedAt      DateTime?  @map("completed_at")
@@ -61,23 +50,20 @@ model Progress {
   updatedAt        DateTime  @default(now()) @map("updated_at")
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   topic            Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  subtopic         Subtopic? @relation(fields: [subtopicId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, topicId, subtopicId])
+  @@unique([userId, topicId])
   @@map("user_progress")
 }
 
 model Question {
   id          String    @id @default(uuid()) @db.Uuid
-  topicId     String    @map("topic_id") @db.Uuid
-  subtopicId  String?   @map("subtopic_id") @db.Uuid
+  topicId     String    @map("topic_id") @db.Text
   title       String
   description String
   difficulty  Difficulty
   constraints String[]
   createdAt   DateTime  @default(now()) @map("created_at")
   topic       Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  subtopic    Subtopic? @relation(fields: [subtopicId], references: [id], onDelete: Cascade)
   examples    QuestionExample[]
   testCases   TestCase[]
   submissions UserSubmission[]
@@ -130,8 +116,8 @@ enum Difficulty {
 }
 
 enum Status {
-  not_started @map("not-started")
-  in_progress @map("in-progress")
+  not_started
+  in_progress
   complete
 }
 
