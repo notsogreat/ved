@@ -19,10 +19,12 @@ export async function GET(
   { params }: { params: { userId: string } }
 ) {
   try {
+    const { userId } = await Promise.resolve(params);
+
     const topicsWithProgress = await prisma.topic.findMany({
       include: {
         progress: {
-          where: { userId: params.userId },
+          where: { userId },
           select: {
             status: true,
             progressPercentage: true,
@@ -33,7 +35,7 @@ export async function GET(
         children: {
           include: {
             progress: {
-              where: { userId: params.userId },
+              where: { userId },
               select: {
                 status: true,
                 progressPercentage: true,
