@@ -37,7 +37,7 @@ export default function LoginPage() {
       
       // Get the redirect URL from the query params
       const searchParams = new URLSearchParams(window.location.search)
-      const redirectUrl = searchParams.get('redirect') || '/learn'
+      const redirectUrl = searchParams.get('redirect') || '/editor'
       
       router.push(redirectUrl)
       toast.success('Logged in successfully!')
