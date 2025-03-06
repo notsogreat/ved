@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { PaperClipIcon, ArrowUpIcon } from "@heroicons/react/24/outline"
-import { PlayIcon, ArrowPathIcon } from "@heroicons/react/24/solid"
+import { PlayIcon, ArrowPathIcon, CheckCircleIcon } from "@heroicons/react/24/solid"
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 import Editor from '@monaco-editor/react'
@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ChevronDown, ChevronUp, GripHorizontal } from "lucide-react"
 
 interface Message {
   role: 'user' | 'assistant'
@@ -37,6 +38,10 @@ interface TerminalEntry {
   type: 'command' | 'output' | 'error'
   content: string
   timestamp: Date
+}
+
+interface EvaluationResult {
+  evaluation: string;
 }
 
 const SUPPORTED_LANGUAGES: Language[] = [
@@ -171,6 +176,14 @@ export default function ChatSessionPage({
   const initialQueryProcessed = useRef(false)
   const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([])
   const terminalRef = useRef<HTMLDivElement>(null)
+  const [isEvaluating, setIsEvaluating] = useState(false)
+  const [evaluationResult, setEvaluationResult] = useState<string>("")
+  const [currentProblem, setCurrentProblem] = useState<string>("")
+  const [terminalHeight, setTerminalHeight] = useState(30) // Default 30vh
+  const [isTerminalMinimized, setIsTerminalMinimized] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartY = useRef(0)
+  const dragStartHeight = useRef(0)
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -208,7 +221,10 @@ export default function ChatSessionPage({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ 
+          message,
+          conversationHistory: [] // Start with empty history for initial message
+        }),
       })
 
       if (!response.ok) throw new Error('Failed to get response')
@@ -240,7 +256,10 @@ export default function ChatSessionPage({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ 
+          message: userMessage,
+          conversationHistory: messages // Send all previous messages as history
+        }),
       })
 
       if (!response.ok) throw new Error('Failed to get response')
@@ -329,6 +348,76 @@ export default function ChatSessionPage({
     }
   }
 
+  const handleEvaluate = async () => {
+    if (!code.trim() || isEvaluating) return
+    setIsEvaluating(true)
+    setEvaluationResult("")
+
+    try {
+      const response = await fetch('/api/code-evaluation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code,
+          problem: currentProblem,
+          targetJobTitle: "Software Engineer" // This should come from user profile or context
+        }),
+      })
+
+      if (!response.ok) throw new Error('Failed to evaluate code')
+
+      const result: EvaluationResult = await response.json()
+      setEvaluationResult(result.evaluation)
+      
+      // Add evaluation result to messages
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: result.evaluation
+      }])
+
+      // Scroll to the evaluation result
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    } catch (error) {
+      toast.error('Failed to evaluate code')
+      console.error('Evaluation error:', error)
+    } finally {
+      setIsEvaluating(false)
+    }
+  }
+
+  // Update currentProblem when receiving a new problem from the AI
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage?.role === 'assistant' && lastMessage.content.includes('Problem Title:')) {
+      setCurrentProblem(lastMessage.content)
+    }
+  }, [messages])
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true)
+    dragStartY.current = e.clientY
+    dragStartHeight.current = terminalHeight
+    
+    // Add temporary event listeners
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return
+      const delta = dragStartY.current - e.clientY
+      const newHeight = Math.min(Math.max(dragStartHeight.current + (delta / window.innerHeight) * 100, 10), 90)
+      setTerminalHeight(newHeight)
+    }
+    
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black">
@@ -404,7 +493,8 @@ export default function ChatSessionPage({
       </div>
 
       {/* Right side - Code Editor */}
-      <div className="w-1/2 h-screen flex flex-col">
+      <div className="w-1/2 flex flex-col h-screen">
+        {/* Header with language selector and buttons */}
         <div className="border-b border-zinc-800 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -429,28 +519,49 @@ export default function ChatSessionPage({
                 </SelectContent>
               </Select>
             </div>
-            <Button
-              size="sm"
-              onClick={executeCode}
-              disabled={isExecuting || !code.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {isExecuting ? (
-                <>
-                  <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
-                  Running...
-                </>
-              ) : (
-                <>
-                  <PlayIcon className="h-4 w-4 mr-2" />
-                  Run Code
-                </>
-              )}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={executeCode}
+                disabled={isExecuting || !code.trim()}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {isExecuting ? (
+                  <>
+                    <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
+                    Running...
+                  </>
+                ) : (
+                  <>
+                    <PlayIcon className="h-4 w-4 mr-2" />
+                    Run Code
+                  </>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleEvaluate}
+                disabled={isEvaluating || !code.trim() || !currentProblem}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {isEvaluating ? (
+                  <>
+                    <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
+                    Evaluating...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircleIcon className="h-4 w-4 mr-2" />
+                    Evaluate
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
 
-        <div className="flex-1">
+        {/* Code Editor - adjust height based on terminal state */}
+        <div className={`flex-grow ${isTerminalMinimized ? 'h-[calc(100vh-80px)]' : `h-[calc(${100-terminalHeight}vh-80px)]`}`}>
           <Editor
             height="100%"
             defaultLanguage={selectedLanguage.id}
@@ -470,51 +581,83 @@ export default function ChatSessionPage({
           />
         </div>
 
-        <div className="h-48 border-t border-zinc-800 bg-[#1E1E1E] overflow-hidden">
+        {/* Resizable Terminal */}
+        <div 
+          className={`relative transition-all duration-300 ease-in-out ${
+            isTerminalMinimized ? 'h-10' : `h-[${terminalHeight}vh]`
+          } border-t border-zinc-800 bg-[#1E1E1E] overflow-hidden`}
+        >
+          {/* Drag Handle */}
+          <div
+            className={`absolute top-0 left-0 right-0 h-1 cursor-ns-resize flex items-center justify-center hover:bg-zinc-700 ${
+              isDragging ? 'bg-zinc-700' : ''
+            }`}
+            onMouseDown={handleDragStart}
+          >
+            <GripHorizontal className="h-4 w-4 text-zinc-600" />
+          </div>
+
           <div className="flex items-center justify-between px-4 py-2 bg-[#252526] border-b border-zinc-800">
             <h3 className="text-sm font-medium text-zinc-400">Terminal</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs text-zinc-400 hover:text-white"
-              onClick={() => setTerminalHistory([])}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-zinc-400 hover:text-white"
+                onClick={() => setTerminalHistory([])}
+              >
+                Clear
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-zinc-400 hover:text-white"
+                onClick={() => setIsTerminalMinimized(!isTerminalMinimized)}
+              >
+                {isTerminalMinimized ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {!isTerminalMinimized && (
+            <div 
+              ref={terminalRef}
+              className="h-[calc(100%-36px)] overflow-auto p-4 font-mono text-sm"
             >
-              Clear
-            </Button>
-          </div>
-          <div 
-            ref={terminalRef}
-            className="h-[calc(100%-36px)] overflow-auto p-4 font-mono text-sm"
-          >
-            {terminalHistory.length === 0 ? (
-              <div className="text-zinc-600 italic">
-                Terminal ready. Run your code to see the output here.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {terminalHistory.map((entry, index) => (
-                  <div key={index} className="font-mono">
-                    <div className="flex items-start gap-2">
-                      <span className="text-zinc-500 select-none">
-                        {entry.timestamp.toLocaleTimeString()} $
-                      </span>
-                      <span 
-                        className={
-                          entry.type === 'command' 
-                            ? 'text-blue-400'
-                            : entry.type === 'error'
-                            ? 'text-red-400'
-                            : 'text-green-400'
-                        }
-                      >
-                        {entry.content}
-                      </span>
+              {terminalHistory.length === 0 ? (
+                <div className="text-zinc-600 italic">
+                  Terminal ready. Run your code to see the output here.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {terminalHistory.map((entry, index) => (
+                    <div key={index} className="font-mono">
+                      <div className="flex items-start gap-2">
+                        <span className="text-zinc-500 select-none">
+                          {entry.timestamp.toLocaleTimeString()} $
+                        </span>
+                        <span 
+                          className={
+                            entry.type === 'command' 
+                              ? 'text-blue-400'
+                              : entry.type === 'error'
+                              ? 'text-red-400'
+                              : 'text-green-400'
+                          }
+                        >
+                          {entry.content}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
