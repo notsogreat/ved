@@ -1,5 +1,8 @@
 import { OpenAI } from 'openai'
 import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { cookies } from 'next/headers'
+import { MessageSender, MessageType } from '@prisma/client'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -74,7 +77,41 @@ Remember: Focus only on generating the problem. Do not provide solutions or impl
 
 export async function POST(req: Request) {
   try {
-    const { message, conversationHistory = [] } = await req.json()
+    // Get user from cookie
+    const cookieStore = await cookies()
+    const user = cookieStore.get('user')
+    if (!user?.value) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const userData = JSON.parse(user.value)
+    const userId = userData.id
+
+    const { message, sessionId, conversationHistory = [] } = await req.json()
+
+    // Get or create chat session
+    let chatSession = sessionId ? 
+      await prisma.chatSession.findUnique({ where: { id: sessionId } }) :
+      await prisma.chatSession.create({
+        data: {
+          userId: userId,
+          title: message.slice(0, 50) + (message.length > 50 ? '...' : '') // Initial title from user message
+        }
+      })
+
+    if (!chatSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+
+    // Save user message
+    const userMessage = await prisma.chatMessage.create({
+      data: {
+        sessionId: chatSession.id,
+        sender: MessageSender.user,
+        messageType: MessageType.general,
+        message: message
+      }
+    })
 
     const messages = [
       {
@@ -89,14 +126,54 @@ export async function POST(req: Request) {
     ]
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4",
       messages,
       temperature: 0.7,
       max_tokens: 500,
     })
 
-    return NextResponse.json({
-      message: completion.choices[0].message.content,
+    const aiResponse = completion.choices[0].message.content || ''
+
+    // Update session title if this is the first message
+    if (!sessionId && aiResponse) {
+      // Extract a concise title from the AI's response
+      const titlePrompt = `Create a very concise title (MAXIMUM 4 WORDS) for this chat based on my question: "${message}" and your response: "${aiResponse}". Return ONLY the title, nothing else.`
+      const titleCompletion = await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [{ role: "user", content: titlePrompt }],
+        temperature: 0.7,
+        max_tokens: 50,
+      })
+
+      const suggestedTitle = titleCompletion.choices[0].message.content || ''
+      
+      // Update the session title
+      chatSession = await prisma.chatSession.update({
+        where: { id: chatSession.id },
+        data: { title: suggestedTitle.slice(0, 50) }
+      })
+    }
+
+    // Analyze the response to determine message type
+    const messageType = aiResponse.toLowerCase().includes('problem title:') 
+      ? MessageType.question
+      : MessageType.general
+
+    // Save assistant message
+    const assistantMessage = await prisma.chatMessage.create({
+      data: {
+        sessionId: chatSession.id,
+        sender: MessageSender.assistant,
+        messageType,
+        message: aiResponse
+      }
+    })
+
+    const response = {
+      message: aiResponse,
+      sessionId: chatSession.id,
+      messageId: assistantMessage.id,
+      title: chatSession.title,
       conversationHistory: [
         ...conversationHistory,
         {
@@ -105,13 +182,15 @@ export async function POST(req: Request) {
         },
         {
           role: "assistant",
-          content: completion.choices[0].message.content
+          content: aiResponse
         }
       ]
-    })
+    }
+
+    return NextResponse.json(response)
 
   } catch (error) {
-    console.error('OpenAI API error:', error)
+    console.error('API error:', error)
     return NextResponse.json(
       { error: 'There was an error processing your request' },
       { status: 500 }

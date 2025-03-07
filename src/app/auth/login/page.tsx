@@ -33,11 +33,11 @@ export default function LoginPage() {
       if (!response.ok) throw new Error('Login failed')
       
       // Store user data in localStorage
-      localStorage.setItem('userId', data.id)
+      localStorage.setItem('user', JSON.stringify(data))
       
       // Get the redirect URL from the query params
       const searchParams = new URLSearchParams(window.location.search)
-      const redirectUrl = searchParams.get('redirect') || '/editor'
+      const redirectUrl = searchParams.get('redirect') || '/chat'
       
       router.push(redirectUrl)
       toast.success('Logged in successfully!')

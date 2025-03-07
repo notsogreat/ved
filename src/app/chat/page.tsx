@@ -33,14 +33,27 @@ export default function ChatPage() {
     setIsSubmitting(true)
 
     try {
-      // Generate a unique chat ID
-      const chatId = uuidv4()
-      
-      // Create initial message in the database or state management
-      // ... (you can add this later)
+      // Create a new chat session
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          message: inputValue.trim(),
+          sessionId: null, // This will create a new session
+          conversationHistory: []
+        }),
+      })
 
-      // Redirect to the chat session
-      router.push(`/chat/${chatId}?q=${encodeURIComponent(inputValue.trim())}`)
+      if (!response.ok) {
+        throw new Error('Failed to create chat session')
+      }
+
+      const data = await response.json()
+      
+      // Redirect to the chat session with the new session ID
+      router.push(`/chat/${data.sessionId}`)
     } catch (error) {
       toast.error('Failed to start chat')
       console.error('Chat error:', error)

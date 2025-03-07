@@ -11,62 +11,63 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String
-  email     String    @unique
-  password  String
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @default(now()) @map("updated_at")
-  progress  Progress[]
-  submissions UserSubmission[]
+  id           String           @id @default(uuid()) @db.Uuid
+  name         String
+  email        String           @unique
+  password     String
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @default(now()) @map("updated_at")
+  progress     Progress[]
+  submissions  UserSubmission[]
+  chatSessions ChatSession[]
 
   @@map("users")
 }
 
 model Topic {
-  id            String    @id @db.Text
-  name          String
-  category      String
-  difficulty    Difficulty
-  prerequisites String[]
-  description   String?
-  parentId      String?   @db.Text @map("parentId")
-  parent        Topic?    @relation("TopicToTopic", fields: [parentId], references: [id], onDelete: SetNull)
-  children      Topic[]   @relation("TopicToTopic")
-  progress      Progress[]
-  questions     Question[]
+  id                String     @id @db.Text
+  name              String
+  category          String
+  difficulty        Difficulty
+  prerequisites     String[]
+  description       String?
+  parentId          String?    @map("parentId") @db.Text
+  parent            Topic?     @relation("TopicToTopic", fields: [parentId], references: [id], onDelete: SetNull)
+  children          Topic[]    @relation("TopicToTopic")
+  progress          Progress[]
+  questions         Question[]
   currentInProgress Progress[] @relation("CurrentSubtopic")
 
   @@map("topics")
 }
 
 model Progress {
-  id                String    @id @default(uuid()) @db.Uuid
-  userId           String    @map("user_id") @db.Uuid
-  topicId          String    @map("topic_id") @db.Text
-  currentSubtopicId String?  @map("current_subtopic_id") @db.Text
-  status           Status
-  progressPercentage Int      @map("progress_percentage")
-  completedAt      DateTime?  @map("completed_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @default(now()) @map("updated_at")
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  topic            Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  currentSubtopic  Topic?    @relation("CurrentSubtopic", fields: [currentSubtopicId], references: [id], onDelete: SetNull)
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  topicId            String    @map("topic_id") @db.Text
+  currentSubtopicId  String?   @map("current_subtopic_id") @db.Text
+  status             Status
+  progressPercentage Int       @map("progress_percentage")
+  completedAt        DateTime? @map("completed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @default(now()) @map("updated_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic              Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  currentSubtopic    Topic?    @relation("CurrentSubtopic", fields: [currentSubtopicId], references: [id], onDelete: SetNull)
 
   @@unique([userId, topicId])
   @@map("user_progress")
 }
 
 model Question {
-  id          String    @id @default(uuid()) @db.Uuid
-  topicId     String    @map("topic_id") @db.Text
+  id          String            @id @default(uuid()) @db.Uuid
+  topicId     String            @map("topic_id") @db.Text
   title       String
   description String
   difficulty  Difficulty
   constraints String[]
-  createdAt   DateTime  @default(now()) @map("created_at")
-  topic       Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  topic       Topic             @relation(fields: [topicId], references: [id], onDelete: Cascade)
   examples    QuestionExample[]
   testCases   TestCase[]
   submissions UserSubmission[]
@@ -97,17 +98,17 @@ model TestCase {
 }
 
 model UserSubmission {
-  id            String   @id @default(uuid()) @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
-  questionId    String   @map("question_id") @db.Uuid
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  questionId    String           @map("question_id") @db.Uuid
   code          String
   language      String
   status        SubmissionStatus
-  executionTime Float?   @map("execution_time")
-  memoryUsage   Float?   @map("memory_usage")
-  createdAt     DateTime @default(now()) @map("created_at")
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  question      Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  executionTime Float?           @map("execution_time")
+  memoryUsage   Float?           @map("memory_usage")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question      Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@map("user_submissions")
 }
@@ -130,4 +131,69 @@ enum SubmissionStatus {
   running
   completed
   error
+}
+
+// Enums for chat message types
+enum MessageSender {
+  user
+  assistant
+}
+
+enum MessageType {
+  general
+  question
+  evaluation
+  system
+}
+
+// Chat Session Model
+model ChatSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  user            User             @relation(fields: [userId], references: [id])
+  messages        ChatMessage[]
+  codeSubmissions CodeSubmission[]
+
+  @@map("chat_sessions")
+}
+
+// Chat Message Model
+model ChatMessage {
+  id               String        @id @default(uuid()) @db.Uuid
+  sessionId        String        @map("session_id") @db.Uuid
+  sender           MessageSender
+  messageType      MessageType   @map("message_type")
+  message          String
+  codeSubmissionId String?       @unique @map("code_submission_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  session        ChatSession      @relation(fields: [sessionId], references: [id])
+  codeSubmission CodeSubmission?  @relation("EvaluationMessage", fields: [codeSubmissionId], references: [id])
+  submissions    CodeSubmission[] @relation("QuestionMessage")
+
+  @@map("chat_messages")
+}
+
+// Code Submission Model
+model CodeSubmission {
+  id            String   @id @default(uuid()) @db.Uuid
+  sessionId     String   @map("session_id") @db.Uuid
+  chatMessageId String   @map("chat_message_id") @db.Uuid
+  language      String
+  code          String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  session    ChatSession  @relation(fields: [sessionId], references: [id])
+  question   ChatMessage  @relation("QuestionMessage", fields: [chatMessageId], references: [id])
+  evaluation ChatMessage? @relation("EvaluationMessage")
+
+  @@map("code_submissions")
 }
