@@ -2,11 +2,19 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { cookies } from 'next/headers'
 
-export async function GET(
-  request: Request,
-  { params }: { params: { sessionId: string } }
-) {
+interface RouteParams {
+  params: Promise<{ sessionId: string }> | { sessionId: string }
+}
+
+export async function GET(request: Request, { params }: RouteParams) {
   try {
+    const resolvedParams = await Promise.resolve(params)
+    const sessionId = resolvedParams.sessionId
+
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Session ID is required' }, { status: 400 })
+    }
+
     // Get user from cookie
     const cookieStore = await cookies()
     const user = cookieStore.get('user')
@@ -16,7 +24,6 @@ export async function GET(
 
     const userData = JSON.parse(user.value)
     const userId = userData.id
-    const sessionId = await Promise.resolve(params.sessionId)
 
     // Verify session belongs to user
     const session = await prisma.chatSession.findUnique({
