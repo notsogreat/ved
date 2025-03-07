@@ -48,7 +48,7 @@ export function ChatSidebar() {
 
   useEffect(() => {
     fetchSessions();
-    const interval = setInterval(fetchSessions, 10000);
+    const interval = setInterval(fetchSessions, 300000);
     return () => clearInterval(interval);
   }, []);
 
