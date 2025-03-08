@@ -16,7 +16,8 @@ export async function GET(
 
     const userData = JSON.parse(user.value)
     const userId = userData.id
-    const sessionId = params.sessionId
+    const resolvedParams = await Promise.resolve(params)
+    const sessionId = resolvedParams.sessionId
 
     // Verify session belongs to user
     const session = await prisma.chatSession.findUnique({
@@ -65,7 +66,8 @@ export async function POST(
 
     const userData = JSON.parse(user.value)
     const userId = userData.id
-    const sessionId = params.sessionId
+    const resolvedParams = await Promise.resolve(params)
+    const sessionId = resolvedParams.sessionId
 
     // Verify session belongs to user
     const session = await prisma.chatSession.findUnique({
