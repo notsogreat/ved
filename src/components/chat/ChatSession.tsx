@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { PaperClipIcon, ArrowUpIcon } from "@heroicons/react/24/outline"
+import { PaperClipIcon, ArrowUpIcon, BookmarkIcon } from "@heroicons/react/24/outline"
 import { PlayIcon, ArrowPathIcon, CheckCircleIcon } from "@heroicons/react/24/solid"
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
@@ -172,11 +172,12 @@ export function ChatSession({ chatId }: ChatSessionProps) {
   const [output, setOutput] = useState("")
   const [error, setError] = useState("")
   const [isExecuting, setIsExecuting] = useState(false)
+  const [isEvaluating, setIsEvaluating] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const initialQueryProcessed = useRef(false)
   const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([])
   const terminalRef = useRef<HTMLDivElement>(null)
-  const [isEvaluating, setIsEvaluating] = useState(false)
   const [evaluationResult, setEvaluationResult] = useState<string>("")
   const [currentProblem, setCurrentProblem] = useState<string>("")
   const [terminalHeight, setTerminalHeight] = useState(30)
@@ -217,8 +218,33 @@ export function ChatSession({ chatId }: ChatSessionProps) {
       }
     }
 
+    const loadSavedCode = async () => {
+      try {
+        const response = await fetch(`/api/chat/${chatId}/code`)
+        if (!response.ok) {
+          throw new Error('Failed to fetch saved code')
+        }
+
+        const { codeSubmission } = await response.json()
+        
+        if (codeSubmission) {
+          setCode(codeSubmission.code)
+          // Find and set the language
+          const language = SUPPORTED_LANGUAGES.find(lang => lang.id === codeSubmission.language)
+          if (language) {
+            setSelectedLanguage(language)
+          }
+          toast.success('Loaded saved code')
+        }
+      } catch (error) {
+        console.error('Error loading saved code:', error)
+        // Don't show error toast as this is not critical
+      }
+    }
+
     if (user) {
       loadChatHistory()
+      loadSavedCode()
     }
   }, [chatId, user, isLoading, router])
 
@@ -410,6 +436,42 @@ export function ChatSession({ chatId }: ChatSessionProps) {
     }
   }
 
+  const handleSaveCode = async () => {
+    if (!code.trim() || isSaving) return
+    setIsSaving(true)
+
+    try {
+      const response = await fetch(`/api/chat/${chatId}/code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code,
+          language: selectedLanguage.id
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        if (response.status === 400 && data.error === 'No question message found in this session') {
+          toast.error('Please ask a question first before saving code')
+        } else {
+          toast.error(data.error || 'Failed to save code')
+        }
+        return
+      }
+
+      toast.success('Code saved successfully')
+    } catch (error) {
+      console.error('Error saving code:', error)
+      toast.error('Failed to save code')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   // Update currentProblem when receiving a new problem from the AI
   useEffect(() => {
     const lastMessage = messages[messages.length - 1]
@@ -558,6 +620,24 @@ export function ChatSession({ chatId }: ChatSessionProps) {
                   <>
                     <PlayIcon className="h-4 w-4 mr-2" />
                     Run Code
+                  </>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveCode}
+                disabled={isSaving || !code.trim()}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                {isSaving ? (
+                  <>
+                    <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <BookmarkIcon className="h-4 w-4 mr-2" />
+                    Save Code
                   </>
                 )}
               </Button>
