@@ -180,12 +180,14 @@ export function ChatSession({ chatId }: ChatSessionProps) {
   const terminalRef = useRef<HTMLDivElement>(null)
   const [evaluationResult, setEvaluationResult] = useState<string>("")
   const [currentProblem, setCurrentProblem] = useState<string>("")
-  const [terminalHeight, setTerminalHeight] = useState(30)
+  const [terminalHeight, setTerminalHeight] = useState(200)
   const [isTerminalMinimized, setIsTerminalMinimized] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true)
   const dragStartY = useRef(0)
   const dragStartHeight = useRef(0)
-  const [isLoadingMessages, setIsLoadingMessages] = useState(true)
+  const minTerminalHeight = 100
+  const maxTerminalHeight = 500
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -480,6 +482,25 @@ export function ChatSession({ chatId }: ChatSessionProps) {
     }
   }, [messages])
 
+  // Add resize handler
+  useEffect(() => {
+    const handleResize = () => {
+      // Ensure terminal height doesn't exceed screen bounds
+      const windowHeight = window.innerHeight
+      const maxAllowedHeight = windowHeight * 0.6 // 60% of screen height
+      setTerminalHeight(prev => Math.min(prev, maxAllowedHeight))
+    }
+
+    // Initial call
+    handleResize()
+
+    // Add event listener
+    window.addEventListener('resize', handleResize)
+
+    // Cleanup
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
   const handleDragStart = (e: React.MouseEvent) => {
     setIsDragging(true)
     dragStartY.current = e.clientY
@@ -489,7 +510,10 @@ export function ChatSession({ chatId }: ChatSessionProps) {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return
       const delta = dragStartY.current - e.clientY
-      const newHeight = Math.min(Math.max(dragStartHeight.current + (delta / window.innerHeight) * 100, 10), 90)
+      const newHeight = Math.min(
+        Math.max(dragStartHeight.current + delta, minTerminalHeight),
+        maxTerminalHeight
+      )
       setTerminalHeight(newHeight)
     }
     
@@ -664,7 +688,14 @@ export function ChatSession({ chatId }: ChatSessionProps) {
         </div>
 
         {/* Code Editor - adjust height based on terminal state */}
-        <div className={`flex-grow ${isTerminalMinimized ? 'h-[calc(100vh-80px)]' : `h-[calc(${100-terminalHeight}vh-80px)]`}`}>
+        <div 
+          className="flex-grow"
+          style={{
+            height: isTerminalMinimized 
+              ? 'calc(100vh - 80px)' 
+              : `calc(100vh - ${terminalHeight + 80}px)`
+          }}
+        >
           <Editor
             height="100%"
             defaultLanguage={selectedLanguage.id}
@@ -686,9 +717,11 @@ export function ChatSession({ chatId }: ChatSessionProps) {
 
         {/* Resizable Terminal */}
         <div 
-          className={`relative transition-all duration-300 ease-in-out ${
-            isTerminalMinimized ? 'h-10' : `h-[${terminalHeight}vh]`
-          } border-t border-zinc-800 bg-[#1E1E1E] overflow-hidden`}
+          className="relative border-t border-zinc-800 bg-[#1E1E1E] overflow-hidden"
+          style={{
+            height: isTerminalMinimized ? '40px' : `${terminalHeight}px`,
+            transition: isDragging ? 'none' : 'height 0.3s ease-in-out'
+          }}
         >
           {/* Drag Handle */}
           <div
