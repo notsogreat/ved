@@ -1,6 +1,8 @@
 import { OpenAI } from 'openai'
 import { NextResponse } from 'next/server'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { prisma } from '@/lib/prisma'
+import { cookies } from 'next/headers'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -65,7 +67,39 @@ Format your response in markdown for better readability.
 
 export async function POST(req: Request) {
   try {
-    const { code, problem, targetJobTitle } = await req.json()
+    // Get user from cookie
+    const cookieStore = await cookies()
+    const user = cookieStore.get('user')
+    if (!user?.value) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const userData = JSON.parse(user.value)
+    const userId = userData.id
+
+    const { code, problem, targetJobTitle, sessionId, codeSubmissionId } = await req.json() as {
+      code: string;
+      problem: string;
+      targetJobTitle: string;
+      sessionId: string;
+      codeSubmissionId?: string;
+    }
+
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Session ID is required' }, { status: 400 })
+    }
+
+    // Verify session belongs to user
+    const session = await prisma.chatSession.findUnique({
+      where: {
+        id: sessionId,
+        userId
+      }
+    })
+
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
 
     const messages: ChatCompletionMessageParam[] = [
       {
@@ -95,8 +129,38 @@ Please evaluate the solution based on the given criteria.
       max_tokens: 1000,
     })
 
+    const evaluationContent = completion.choices[0].message.content
+
+    // Save the evaluation as a chat message
+    const chatMessageData: any = {
+      sessionId,
+      sender: 'assistant',
+      messageType: 'evaluation',
+      message: evaluationContent,
+    }
+    
+    // Only add codeSubmissionId if it exists
+    if (codeSubmissionId) {
+      chatMessageData.codeSubmissionId = codeSubmissionId;
+    }
+
+    const evaluationMessage = await prisma.chatMessage.create({
+      data: chatMessageData
+    })
+
+    // If a code submission ID was provided, update the code submission with the evaluation
+    if (codeSubmissionId) {
+      await prisma.codeSubmission.update({
+        where: { id: codeSubmissionId },
+        data: {
+          evaluation: { connect: { id: evaluationMessage.id } }
+        }
+      })
+    }
+
     return NextResponse.json({
-      evaluation: completion.choices[0].message.content
+      evaluation: evaluationContent,
+      evaluationId: evaluationMessage.id
     })
 
   } catch (error) {

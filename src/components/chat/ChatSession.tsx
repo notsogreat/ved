@@ -405,6 +405,37 @@ export function ChatSession({ chatId }: ChatSessionProps) {
     setEvaluationResult("")
 
     try {
+      // First save the code to get a codeSubmissionId
+      let codeSubmissionId: string | undefined;
+      
+      if (!isSaving) {
+        setIsSaving(true);
+        try {
+          const saveResponse = await fetch(`/api/chat/${chatId}/code`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              code,
+              language: selectedLanguage.id
+            }),
+          });
+
+          const saveData = await saveResponse.json();
+
+          if (saveResponse.ok) {
+            codeSubmissionId = saveData.codeSubmission.id;
+          } else {
+            console.error('Failed to save code before evaluation');
+          }
+        } catch (error) {
+          console.error('Error saving code before evaluation:', error);
+        } finally {
+          setIsSaving(false);
+        }
+      }
+
       const response = await fetch('/api/code-evaluation', {
         method: 'POST',
         headers: {
@@ -413,7 +444,9 @@ export function ChatSession({ chatId }: ChatSessionProps) {
         body: JSON.stringify({
           code,
           problem: currentProblem,
-          targetJobTitle: "Software Engineer" // This should come from user profile or context
+          targetJobTitle: "Software Engineer", // This should come from user profile or context
+          sessionId: chatId,
+          codeSubmissionId
         }),
       })
 
