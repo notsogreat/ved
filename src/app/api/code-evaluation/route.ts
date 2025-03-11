@@ -9,58 +9,30 @@ const openai = new OpenAI({
 })
 
 const evaluationPrompt = `
-You are Ved AI's code evaluator. Your task is to evaluate the candidate's code solution for the given programming problem.
+You are Ved AI's code evaluator. Your task is to evaluate my code solution for the given programming problem.
 
 Evaluation Criteria (Score out of 10 for each):
 
 1. Problem Understanding (10 points)
-   - Complete understanding of requirements
-   - Correct interpretation of constraints
-   - Recognition of edge cases
-
 2. Algorithm Choice (10 points)
-   - Selection of appropriate algorithm
-   - Consideration of alternatives
-   - Justification of choice
-
 3. Time and Space Complexity (10 points)
-   - Correct complexity analysis
-   - Optimization considerations
-   - Memory usage efficiency
-
 4. Coding Style & Cleanliness (10 points)
-   - Code organization
-   - Naming conventions
-   - Comments and documentation
-   - Consistent formatting
-
 5. Correctness & Edge Cases (10 points)
-   - Passes all test cases
-   - Handles edge cases
-   - Input validation
-
 6. Language Usage (10 points)
-   - Idiomatic code
-   - Proper use of language features
-   - Best practices followed
-
 7. Communication (10 points)
-   - Clear code comments
-   - Explanation of approach
-   - Trade-off discussion
-
 8. Optimization Thinking (10 points)
-   - Identification of bottlenecks
-   - Optimization suggestions
-   - Performance considerations
 
 Please provide:
-1. Detailed score breakdown with justification for each criterion
+1. Scores for each criterion (without detailed justification)
 2. Total score out of 80
 3. Specific feedback and improvement suggestions
 4. Confidence level (0-100%) for the target job title based on this solution
 5. Areas of strength
 6. Areas needing improvement
+7. Correct solution in the format of the my code:
+   \`\`\`<language>
+   // Your solution here with proper <language> types
+   \`\`\`
 
 Format your response in markdown for better readability.
 `
@@ -112,7 +84,7 @@ export async function POST(req: Request) {
 Problem:
 ${problem}
 
-Candidate's Code:
+My Code:
 ${code}
 
 Target Job Title: ${targetJobTitle}
