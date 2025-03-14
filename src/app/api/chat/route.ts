@@ -2,7 +2,14 @@ import { OpenAI } from 'openai'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { cookies } from 'next/headers'
-import { MessageSender, MessageType } from '@prisma/client'
+import { MessageSender, MessageType, Prisma } from '@prisma/client'
+import { extractJobTitle, generateInitialScores } from '@/lib/utils/scoring'
+
+const chatSessionWithScores = Prisma.validator<Prisma.ChatSessionDefaultArgs>()({
+  include: { user_performance_scores: true },
+})
+
+type ChatSessionWithScores = Prisma.ChatSessionGetPayload<typeof chatSessionWithScores>
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -16,15 +23,19 @@ For any question that is not related to interview preparation, respond with: "So
 
 PROBLEM GENERATION WORKFLOW:
 
-1. For new users or when starting, first gather the following information if not already provided:
+1. For new users or when starting, ALWAYS gather the following information if not already provided:
+   - Target job title (Software Engineer, Senior Software Engineer, etc.) - THIS IS REQUIRED
    - Target companies (Big Tech, startups, etc.)
    - Preferred programming languages (Python, Go, Java, etc.)
    - Preparation timeframe (e.g., 4 weeks, 8 weeks)
    - Current skill level (beginner, intermediate, advanced)
    - Specific topic/concept (if specified)
-   - Target job title (Software Engineer, Senior Software Engineer, etc.)
 
-2. Generate Problem with this structure:
+If the user hasn't provided their target job title, ALWAYS ask for it first before proceeding with any other response.
+Example response for missing job title:
+"To provide you with the most relevant interview questions, could you please let me know what job title you're targeting? (e.g., Software Engineer, Senior Software Engineer, Lead Software Engineer, etc.)"
+
+2. Once you have the job title, Generate Problem with this structure:
    Problem Title: A clear, concise title
    
    Description: Clear explanation of the problem
@@ -90,14 +101,73 @@ export async function POST(req: Request) {
     const { message, sessionId, conversationHistory = [] } = await req.json()
 
     // Get or create chat session
-    let chatSession = sessionId ? 
-      await prisma.chatSession.findUnique({ where: { id: sessionId } }) :
-      await prisma.chatSession.create({
+    let chatSession: ChatSessionWithScores | null = null;
+    
+    if (!sessionId) {
+      // Create the chat session first, without performance scores
+      chatSession = await prisma.chatSession.create({
         data: {
           userId: userId,
-          title: message.slice(0, 50) + (message.length > 50 ? '...' : '') // Initial title from user message
+          title: message.slice(0, 50) + (message.length > 50 ? '...' : '')
+        },
+        include: {
+          user_performance_scores: true
         }
-      })
+      }) as ChatSessionWithScores;
+    } else {
+      const existingSession = await prisma.chatSession.findUnique({ 
+        where: { id: sessionId },
+        include: {
+          user_performance_scores: true
+        }
+      });
+
+      if (existingSession) {
+        chatSession = existingSession as ChatSessionWithScores;
+
+        // Only try to extract and create performance scores if we don't have them yet
+        if (chatSession.user_performance_scores.length === 0) {
+          // Check if this message is a response to our job title question
+          const lastMessage = conversationHistory[conversationHistory.length - 1];
+          const wasAskingForJobTitle = lastMessage?.role === 'assistant' && 
+            lastMessage.content.toLowerCase().includes('what job title you\'re targeting');
+          
+          if (wasAskingForJobTitle) {
+            const potentialJobTitle = extractJobTitle(message);
+            if (potentialJobTitle) {
+              const scores = generateInitialScores(potentialJobTitle, userId, chatSession.id);
+              await prisma.user_performance_scores.create({
+                data: {
+                  id: scores.id,
+                  user_id: scores.user_id,
+                  session_id: scores.session_id,
+                  problemUnderstanding: scores.problemUnderstanding,
+                  dataStructureChoice: scores.dataStructureChoice,
+                  timeComplexity: scores.timeComplexity,
+                  codingStyle: scores.codingStyle,
+                  edgeCases: scores.edgeCases,
+                  languageUsage: scores.languageUsage,
+                  communication: scores.communication,
+                  optimization: scores.optimization,
+                  totalScore: scores.totalScore,
+                  targetJobTitle: scores.targetJobTitle
+                }
+              });
+
+              // Refresh the session to include the new performance scores
+              const updatedSession = await prisma.chatSession.findUnique({
+                where: { id: sessionId },
+                include: { user_performance_scores: true }
+              });
+              
+              if (updatedSession) {
+                chatSession = updatedSession as ChatSessionWithScores;
+              }
+            }
+          }
+        }
+      }
+    }
 
     if (!chatSession) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
@@ -113,10 +183,16 @@ export async function POST(req: Request) {
       }
     })
 
+    // If we don't have performance scores yet, force the AI to ask for job title
+    const hasPerformanceScores = chatSession.user_performance_scores.length > 0;
+    const effectiveSystemPrompt = !hasPerformanceScores
+      ? systemPrompt + "\n\nIMPORTANT: The user hasn't provided their job title. Ask for it before proceeding with any other response."
+      : systemPrompt;
+
     const messages = [
       {
         role: "system",
-        content: systemPrompt
+        content: effectiveSystemPrompt
       },
       ...conversationHistory,
       {
@@ -151,7 +227,7 @@ export async function POST(req: Request) {
       chatSession = await prisma.chatSession.update({
         where: { id: chatSession.id },
         data: { title: suggestedTitle.slice(0, 50) }
-      })
+      }) as ChatSessionWithScores;
     }
 
     // Analyze the response to determine message type
