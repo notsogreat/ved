@@ -15,6 +15,88 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
+// Helper function to extract areas needing improvement from evaluation messages
+async function getAreasNeedingImprovement(sessionId: string): Promise<string[]> {
+  const evaluationMessages = await prisma.chatMessage.findMany({
+    where: {
+      sessionId: sessionId,
+      messageType: MessageType.evaluation
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: 3 // Look at last 3 evaluations
+  });
+
+  const areas: string[] = [];
+  for (const msg of evaluationMessages) {
+    const content = msg.message;
+    // Extract areas between "Areas Needing Improvement" and the next section
+    const match = content.match(/Areas Needing Improvement([\s\S]*?)(?=Areas of Strength|Correct Solution|$)/i);
+    if (match && match[1]) {
+      // Split into bullet points and clean up
+      const bulletPoints = match[1]
+        .split('\n')
+        .filter(line => line.trim().startsWith('-'))
+        .map(line => line.replace('-', '').trim());
+      areas.push(...bulletPoints);
+    }
+  }
+
+  return [...new Set(areas)]; // Remove duplicates
+}
+
+// Helper function to get performance metrics that need improvement
+async function getMetricsNeedingImprovement(sessionId: string): Promise<string[]> {
+  const session = await prisma.chatSession.findUnique({
+    where: { id: sessionId },
+    include: { user_performance_scores: true }
+  });
+
+  if (!session?.user_performance_scores[0]) return [];
+
+  const targetScores = session.user_performance_scores[0];
+  const evaluationMessages = await prisma.chatMessage.findMany({
+    where: {
+      sessionId: sessionId,
+      messageType: MessageType.evaluation
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: 1
+  });
+
+  if (!evaluationMessages[0]) return [];
+
+  const content = evaluationMessages[0].message;
+  const metrics = [
+    { name: 'Problem Understanding', field: 'problemUnderstanding' },
+    { name: 'Data Structure & Algorithm Choice', field: 'dataStructureChoice' },
+    { name: 'Time and Space Complexity', field: 'timeComplexity' },
+    { name: 'Coding Style & Cleanliness', field: 'codingStyle' },
+    { name: 'Correctness & Edge Cases', field: 'edgeCases' },
+    { name: 'Language Usage', field: 'languageUsage' },
+    { name: 'Communication', field: 'communication' },
+    { name: 'Optimization', field: 'optimization' }
+  ] as const;
+
+  const needsImprovement: string[] = [];
+  
+  for (const metric of metrics) {
+    const scoreMatch = content.match(new RegExp(`${metric.name}.*?\\((\\d+).*?points\\)`));
+    if (scoreMatch) {
+      const currentScore = parseInt(scoreMatch[1]);
+      const targetScore = targetScores[metric.field];
+      if (typeof targetScore === 'number' && currentScore < targetScore) {
+        needsImprovement.push(metric.name);
+      }
+    }
+  }
+
+  return needsImprovement;
+}
+
 const systemPrompt = `
 You are Ved AI's problem generator, specialized in creating high-quality programming interview questions and helping software engineers prepare for technical interviews. 
 Your role is to generate clear, well-structured programming problems that test important concepts.
@@ -36,6 +118,8 @@ Example response for missing job title:
 "To provide you with the most relevant interview questions, could you please let me know what job title you're targeting? (e.g., Software Engineer, Senior Software Engineer, Lead Software Engineer, etc.)"
 
 2. Once you have the job title, Generate Problem with this structure:
+   [ALWAYS START WITH 2 LINES EXPLAINING WHY THIS SPECIFIC PROBLEM WAS CHOSEN AND HOW IT WILL HELP THE USER IMPROVE]
+   
    Problem Title: A clear, concise title
    
    Description: Clear explanation of the problem
@@ -82,6 +166,13 @@ IMPORTANT GUIDELINES:
    - No ambiguous statements
    - Well-structured examples
    - Clear constraints
+
+3. Focus Areas:
+   If areas needing improvement are provided, generate problems that specifically target these areas.
+   For example:
+   - If "optimization" needs improvement, focus on problems requiring efficient solutions
+   - If "edge cases" needs improvement, include problems with tricky edge cases
+   - If "communication" needs improvement, require detailed explanation of approach
 
 Remember: Focus only on generating the problem. Do not provide solutions or implementation hints unless specifically requested.
 `
@@ -185,9 +276,31 @@ export async function POST(req: Request) {
 
     // If we don't have performance scores yet, force the AI to ask for job title
     const hasPerformanceScores = chatSession.user_performance_scores.length > 0;
-    const effectiveSystemPrompt = !hasPerformanceScores
+    let effectiveSystemPrompt = !hasPerformanceScores
       ? systemPrompt + "\n\nIMPORTANT: The user hasn't provided their job title. Ask for it before proceeding with any other response."
       : systemPrompt;
+
+    // If we have performance scores, check areas needing improvement
+    if (hasPerformanceScores) {
+      const [areasNeedingImprovement, metricsNeedingImprovement] = await Promise.all([
+        getAreasNeedingImprovement(chatSession.id),
+        getMetricsNeedingImprovement(chatSession.id)
+      ]);
+
+      if (areasNeedingImprovement.length > 0 || metricsNeedingImprovement.length > 0) {
+        effectiveSystemPrompt += "\n\nIMPORTANT: Focus on the following areas that need improvement:\n";
+        
+        if (areasNeedingImprovement.length > 0) {
+          effectiveSystemPrompt += "\nSpecific Areas:\n" + areasNeedingImprovement.map(area => `- ${area}`).join('\n');
+        }
+        
+        if (metricsNeedingImprovement.length > 0) {
+          effectiveSystemPrompt += "\nMetrics to Improve:\n" + metricsNeedingImprovement.map(metric => `- ${metric}`).join('\n');
+        }
+        
+        effectiveSystemPrompt += "\n\nGenerate a problem that specifically targets these areas for improvement.";
+      }
+    }
 
     const messages = [
       {
