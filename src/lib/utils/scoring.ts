@@ -94,19 +94,52 @@ export function generateInitialScores(jobTitle: string, userId: string, sessionI
 export function extractJobTitle(message: string): string {
   const defaultTitle = 'Software Engineer';
   
+  // Normalize the message
+  const normalizedMessage = message.toLowerCase().trim();
+  console.log('Attempting to extract job title from:', normalizedMessage);
+  
+  // First, check if this is a comma-separated response to the initial questions
+  if (normalizedMessage.includes(',')) {
+    console.log('Detected comma-separated response, skipping job title extraction');
+    return '';
+  }
+  
   // Common patterns for job title mentions
   const patterns = [
-    /(?:for|as|position|role|job|title).*?(junior|senior|lead|principal)?\s*(software engineer|developer|engineer|programmer)/i,
-    /(junior|senior|lead|principal)?\s*(software engineer|developer|engineer|programmer)/i
+    // Direct role mentions with "help" context
+    /help.*?(junior|senior|lead|principal)?\s*(software engineer(?:ing)?|developer|engineer|programmer)\s*(?:role|position)?/i,
+    // Direct role mentions
+    /(?:for|as|position|role|job|title).*?(junior|senior|lead|principal)?\s*(software engineer(?:ing)?|developer|engineer|programmer)/i,
+    /(junior|senior|lead|principal)?\s*(software engineer(?:ing)?|developer|engineer|programmer)/i,
+    // Role without explicit title
+    /software engineer(?:ing)?|developer|engineer|programmer/i
   ];
 
   for (const pattern of patterns) {
-    const match = message.match(pattern);
+    const match = normalizedMessage.match(pattern);
     if (match) {
-      const title = match[0].replace(/^(?:for|as|position|role|job|title)\s*/, '').trim();
-      return title.charAt(0).toUpperCase() + title.slice(1);
+      let title = match[0]
+        .replace(/^(?:help|for|as|position|role|job|title).*?(with\s*)?/, '') // Remove prefixes
+        .replace(/ing\b/, 'er') // Convert "engineering" to "engineer"
+        .replace(/\s*role\s*$/, '') // Remove trailing "role" word
+        .trim();
+      
+      // Capitalize first letter of each word
+      title = title.split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      
+      // Ensure "Software Engineer" is properly formatted
+      if (title.toLowerCase().includes('software')) {
+        title = title.replace(/software\s*engineer/i, 'Software Engineer');
+      }
+      
+      console.log('Successfully extracted job title:', title);
+      console.log('Matched pattern:', pattern);
+      return title;
     }
   }
 
+  console.log('No job title found, using default:', defaultTitle);
   return defaultTitle;
 } 

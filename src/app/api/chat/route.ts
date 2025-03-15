@@ -218,42 +218,83 @@ export async function POST(req: Request) {
 
         // Only try to extract and create performance scores if we don't have them yet
         if (chatSession.user_performance_scores.length === 0) {
-          // Check if this message is a response to our job title question
-          const lastMessage = conversationHistory[conversationHistory.length - 1];
-          const wasAskingForJobTitle = lastMessage?.role === 'assistant' && 
-            lastMessage.content.toLowerCase().includes('what job title you\'re targeting');
+          console.log('Attempting to create performance scores for session:', chatSession.id);
           
-          if (wasAskingForJobTitle) {
-            const potentialJobTitle = extractJobTitle(message);
-            if (potentialJobTitle) {
-              const scores = generateInitialScores(potentialJobTitle, userId, chatSession.id);
-              await prisma.user_performance_scores.create({
-                data: {
-                  id: scores.id,
-                  user_id: scores.user_id,
-                  session_id: scores.session_id,
-                  problemUnderstanding: scores.problemUnderstanding,
-                  dataStructureChoice: scores.dataStructureChoice,
-                  timeComplexity: scores.timeComplexity,
-                  codingStyle: scores.codingStyle,
-                  edgeCases: scores.edgeCases,
-                  languageUsage: scores.languageUsage,
-                  communication: scores.communication,
-                  optimization: scores.optimization,
-                  totalScore: scores.totalScore,
-                  targetJobTitle: scores.targetJobTitle
-                }
-              });
+          // Function to extract role information from conversation
+          const findRoleInformation = (history: any[]) => {
+            // First check the current message
+            const currentMessageTitle = extractJobTitle(message);
+            if (currentMessageTitle) {
+              return { title: currentMessageTitle, isValid: true };
+            }
 
-              // Refresh the session to include the new performance scores
-              const updatedSession = await prisma.chatSession.findUnique({
-                where: { id: sessionId },
-                include: { user_performance_scores: true }
-              });
+            // Then scan through conversation history
+            for (let i = history.length - 1; i >= 0; i--) {
+              const msg = history[i];
               
-              if (updatedSession) {
-                chatSession = updatedSession as ChatSessionWithScores;
+              // Check assistant responses for role acknowledgment
+              if (msg.role === 'assistant' && 
+                  msg.content.toLowerCase().includes('software engineer') &&
+                  !msg.content.toLowerCase().includes('what job title')) {
+                const roleMatch = msg.content.match(/for\s+(?:a|the)\s+(.*?(?:engineer|developer).*?)(?:\s+role|\.|,)/i);
+                if (roleMatch) {
+                  return { title: roleMatch[1], isValid: true };
+                }
               }
+              
+              // Check user messages for role mention
+              if (msg.role === 'user') {
+                const userMessageTitle = extractJobTitle(msg.content);
+                if (userMessageTitle) {
+                  return { title: userMessageTitle, isValid: true };
+                }
+              }
+            }
+            
+            return { title: '', isValid: false };
+          };
+
+          // Find role information from conversation
+          const { title: potentialJobTitle, isValid } = findRoleInformation(conversationHistory);
+          
+          console.log('Job title extraction results:', {
+            extractedTitle: potentialJobTitle,
+            isValid,
+            fromConversationHistory: true,
+            messageCount: conversationHistory.length
+          });
+          
+          // Create performance scores if we found a valid job title
+          if (potentialJobTitle && isValid) {
+            console.log('Creating performance scores with job title:', potentialJobTitle);
+            const scores = generateInitialScores(potentialJobTitle, userId, chatSession.id);
+            await prisma.user_performance_scores.create({
+              data: {
+                id: scores.id,
+                user_id: scores.user_id,
+                session_id: scores.session_id,
+                problemUnderstanding: scores.problemUnderstanding,
+                dataStructureChoice: scores.dataStructureChoice,
+                timeComplexity: scores.timeComplexity,
+                codingStyle: scores.codingStyle,
+                edgeCases: scores.edgeCases,
+                languageUsage: scores.languageUsage,
+                communication: scores.communication,
+                optimization: scores.optimization,
+                totalScore: scores.totalScore,
+                targetJobTitle: scores.targetJobTitle
+              }
+            });
+            console.log('Successfully created performance scores for job title:', potentialJobTitle);
+
+            // Refresh the session to include the new performance scores
+            const updatedSession = await prisma.chatSession.findUnique({
+              where: { id: sessionId },
+              include: { user_performance_scores: true }
+            });
+            
+            if (updatedSession) {
+              chatSession = updatedSession as ChatSessionWithScores;
             }
           }
         }
