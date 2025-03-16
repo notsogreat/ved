@@ -37,7 +37,7 @@ export default function SignupPage() {
       }
       
       const searchParams = new URLSearchParams(window.location.search)
-      const redirectUrl = searchParams.get('redirect') || '/learn'
+      const redirectUrl = searchParams.get('redirect') || '/chat'
       
       router.push(redirectUrl)
       toast.success('Account created successfully!')

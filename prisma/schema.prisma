@@ -17,99 +17,8 @@ model User {
   image                   String?
   chatSessions            ChatSession[]
   user_performance_scores user_performance_scores[]
-  progress                Progress[]
-  submissions             UserSubmission[]
 
   @@map("users")
-}
-
-model Topic {
-  id                String     @id
-  name              String
-  category          String
-  difficulty        Difficulty
-  prerequisites     String[]
-  description       String?
-  parentId          String?    @map("parentId")
-  questions         Question[]
-  parent            Topic?     @relation("TopicToTopic", fields: [parentId], references: [id])
-  children          Topic[]    @relation("TopicToTopic")
-  currentInProgress Progress[] @relation("CurrentSubtopic")
-  progress          Progress[]
-
-  @@map("topics")
-}
-
-model Progress {
-  id                 String    @id @default(uuid()) @db.Uuid
-  userId             String    @map("user_id") @db.Uuid
-  topicId            String    @map("topic_id")
-  status             Status
-  progressPercentage Int       @map("progress_percentage")
-  completedAt        DateTime? @map("completed_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @default(now()) @map("updated_at")
-  currentSubtopicId  String?   @map("current_subtopic_id")
-  currentSubtopic    Topic?    @relation("CurrentSubtopic", fields: [currentSubtopicId], references: [id])
-  topic              Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, topicId])
-  @@map("user_progress")
-}
-
-model Question {
-  id          String            @id @default(uuid()) @db.Uuid
-  topicId     String            @map("topic_id")
-  title       String
-  description String
-  difficulty  Difficulty
-  constraints String[]
-  createdAt   DateTime          @default(now()) @map("created_at")
-  examples    QuestionExample[]
-  topic       Topic             @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  testCases   TestCase[]
-  submissions UserSubmission[]
-
-  @@map("questions")
-}
-
-model QuestionExample {
-  id          String   @id @default(uuid()) @db.Uuid
-  questionId  String   @map("question_id") @db.Uuid
-  input       String
-  output      String
-  explanation String?
-  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  @@map("question_examples")
-}
-
-model TestCase {
-  id             String   @id @default(uuid()) @db.Uuid
-  questionId     String   @map("question_id") @db.Uuid
-  input          String
-  expectedOutput String   @map("expected_output")
-  isHidden       Boolean  @default(false) @map("is_hidden")
-  question       Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  @@map("test_cases")
-}
-
-model UserSubmission {
-  id            String           @id @default(uuid()) @db.Uuid
-  userId        String           @map("user_id") @db.Uuid
-  questionId    String           @map("question_id") @db.Uuid
-  code          String
-  language      String
-  status        SubmissionStatus
-  executionTime Float?           @map("execution_time")
-  memoryUsage   Float?           @map("memory_usage")
-  createdAt     DateTime         @default(now()) @map("created_at")
-  question      Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_submissions")
 }
 
 model ChatSession {
@@ -173,26 +82,6 @@ model user_performance_scores {
   created_at           DateTime    @default(now())
   chat_sessions        ChatSession @relation(fields: [session_id], references: [id])
   users                User        @relation(fields: [user_id], references: [id])
-}
-
-enum Difficulty {
-  easy
-  medium
-  hard
-  beginner
-}
-
-enum Status {
-  not_started
-  in_progress
-  complete
-}
-
-enum SubmissionStatus {
-  pending
-  running
-  completed
-  error
 }
 
 enum MessageSender {
