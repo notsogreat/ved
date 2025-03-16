@@ -232,9 +232,7 @@ export async function POST(req: Request) {
         chatSession = existingSession as ChatSessionWithScores;
 
         // Only try to extract and create performance scores if we don't have them yet
-        if (chatSession.user_performance_scores.length === 0) {
-          console.log('Attempting to create performance scores for session:', chatSession.id);
-          
+        if (chatSession.user_performance_scores.length === 0) {          
           // Function to extract role information from conversation
           const findRoleInformation = (history: any[]) => {
             // First check the current message
@@ -272,16 +270,8 @@ export async function POST(req: Request) {
           // Find role information from conversation
           const { title: potentialJobTitle, isValid } = findRoleInformation(conversationHistory);
           
-          console.log('Job title extraction results:', {
-            extractedTitle: potentialJobTitle,
-            isValid,
-            fromConversationHistory: true,
-            messageCount: conversationHistory.length
-          });
-          
           // Create performance scores if we found a valid job title
           if (potentialJobTitle && isValid) {
-            console.log('Creating performance scores with job title:', potentialJobTitle);
             const scores = generateInitialScores(potentialJobTitle, userId, chatSession.id);
             await prisma.user_performance_scores.create({
               data: {
@@ -300,7 +290,6 @@ export async function POST(req: Request) {
                 targetJobTitle: scores.targetJobTitle
               }
             });
-            console.log('Successfully created performance scores for job title:', potentialJobTitle);
 
             // Refresh the session to include the new performance scores
             const updatedSession = await prisma.chatSession.findUnique({
@@ -338,40 +327,45 @@ export async function POST(req: Request) {
 
     // If we have performance scores, check areas needing improvement
     if (hasPerformanceScores) {
-      console.log('Checking areas and metrics needing improvement for session:', chatSession.id);
-      
+      // First, check if there are any evaluation messages
+      const evaluationMessages = await prisma.chatMessage.findMany({
+        where: {
+          sessionId: chatSession.id,
+          messageType: MessageType.evaluation
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        take: 3
+      });
+
       const [areasNeedingImprovement, metricsNeedingImprovement] = await Promise.all([
         getAreasNeedingImprovement(chatSession.id),
         getMetricsNeedingImprovement(chatSession.id)
       ]);
 
-      console.log('Areas and metrics analysis:', {
-        areasNeedingImprovement,
-        metricsNeedingImprovement,
-        hasAreas: areasNeedingImprovement.length > 0,
-        hasMetrics: metricsNeedingImprovement.length > 0,
-        totalImprovementAreas: areasNeedingImprovement.length + metricsNeedingImprovement.length
-      });
-
       if (areasNeedingImprovement.length > 0 || metricsNeedingImprovement.length > 0) {
-        effectiveSystemPrompt += "\n\nIMPORTANT: Focus on the following areas that need improvement:\n";
+        effectiveSystemPrompt += "\n\nIMPORTANT: Based on the feedback from your last attempted question, you need to improve in the following areas:\n";
         
         if (areasNeedingImprovement.length > 0) {
-          console.log('Adding specific areas to focus on:', areasNeedingImprovement);
-          effectiveSystemPrompt += "\nSpecific Areas:\n" + areasNeedingImprovement.map(area => `- ${area}`).join('\n');
+          effectiveSystemPrompt += "\nSpecific Areas from Last Question:\n" + areasNeedingImprovement.map(area => `- ${area}`).join('\n');
         }
         
         if (metricsNeedingImprovement.length > 0) {
-          console.log('Adding metrics to improve:', metricsNeedingImprovement);
-          effectiveSystemPrompt += "\nMetrics to Improve:\n" + metricsNeedingImprovement.map(metric => `- ${metric}`).join('\n');
+          effectiveSystemPrompt += "\nPerformance Metrics Below Target:\n" + metricsNeedingImprovement.map(metric => `- ${metric}`).join('\n');
         }
         
-        effectiveSystemPrompt += "\n\nGenerate a problem that specifically targets these areas for improvement.";
+        effectiveSystemPrompt += "\n\nIMPORTANT: Your next question is specifically designed to help you improve in these areas:";
+        effectiveSystemPrompt += "\n1. You must generate a problem that directly addresses these improvement areas from your last attempt.";
+        effectiveSystemPrompt += "\n2. Your two-line explanation at the start MUST explicitly state how this problem will help improve the specific areas mentioned above.";
+        effectiveSystemPrompt += "\n3. The problem constraints should emphasize practicing these areas.";
       } else {
-        console.log('No specific areas or metrics needing improvement found. Generating a balanced question.');
+        if (evaluationMessages.length === 0) {
+          effectiveSystemPrompt += "\n\nNote: This will be your first question. It will help establish a baseline for your skills.";
+        } else {
+          effectiveSystemPrompt += "\n\nNote: Your last attempt showed balanced performance across all areas. This next question will help maintain your skills while gradually increasing difficulty.";
+        }
       }
-    } else {
-      console.log('No performance scores yet. Will prompt for job title.');
     }
 
     const messages = [
