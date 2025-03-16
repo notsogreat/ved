@@ -55,6 +55,9 @@ async function getMetricsNeedingImprovement(sessionId: string): Promise<string[]
 
   if (!session?.user_performance_scores[0]) return [];
 
+  console.log('Session:', session);
+  console.log('User Performance Scores:', session.user_performance_scores);
+
   const targetScores = session.user_performance_scores[0];
   const evaluationMessages = await prisma.chatMessage.findMany({
     where: {
@@ -70,6 +73,7 @@ async function getMetricsNeedingImprovement(sessionId: string): Promise<string[]
   if (!evaluationMessages[0]) return [];
 
   const content = evaluationMessages[0].message;
+  console.log('Evaluation Message Content:', content);
   const metrics = [
     { name: 'Problem Understanding', field: 'problemUnderstanding' },
     { name: 'Data Structure & Algorithm Choice', field: 'dataStructureChoice' },
@@ -82,18 +86,29 @@ async function getMetricsNeedingImprovement(sessionId: string): Promise<string[]
   ] as const;
 
   const needsImprovement: string[] = [];
+  console.log('Starting metric comparison:');
   
   for (const metric of metrics) {
-    const scoreMatch = content.match(new RegExp(`${metric.name}.*?\\((\\d+).*?points\\)`));
+    // Updated regex to match the format "Metric Name (X/10)"
+    const scoreMatch = content.match(new RegExp(`${metric.name}\\s*\\((\\d+)/10\\)`));
     if (scoreMatch) {
       const currentScore = parseInt(scoreMatch[1]);
       const targetScore = targetScores[metric.field];
+      console.log(`Metric: ${metric.name}`);
+      console.log(`- Current Score: ${currentScore}`);
+      console.log(`- Target Score: ${targetScore}`);
       if (typeof targetScore === 'number' && currentScore < targetScore) {
+        console.log(`- Needs improvement (${currentScore} < ${targetScore})`);
         needsImprovement.push(metric.name);
+      } else {
+        console.log('- Meets or exceeds target');
       }
+    } else {
+      console.log(`No score found for metric: ${metric.name}`);
     }
   }
 
+  console.log('Metrics needing improvement:', needsImprovement);
   return needsImprovement;
 }
 
@@ -323,24 +338,40 @@ export async function POST(req: Request) {
 
     // If we have performance scores, check areas needing improvement
     if (hasPerformanceScores) {
+      console.log('Checking areas and metrics needing improvement for session:', chatSession.id);
+      
       const [areasNeedingImprovement, metricsNeedingImprovement] = await Promise.all([
         getAreasNeedingImprovement(chatSession.id),
         getMetricsNeedingImprovement(chatSession.id)
       ]);
 
+      console.log('Areas and metrics analysis:', {
+        areasNeedingImprovement,
+        metricsNeedingImprovement,
+        hasAreas: areasNeedingImprovement.length > 0,
+        hasMetrics: metricsNeedingImprovement.length > 0,
+        totalImprovementAreas: areasNeedingImprovement.length + metricsNeedingImprovement.length
+      });
+
       if (areasNeedingImprovement.length > 0 || metricsNeedingImprovement.length > 0) {
         effectiveSystemPrompt += "\n\nIMPORTANT: Focus on the following areas that need improvement:\n";
         
         if (areasNeedingImprovement.length > 0) {
+          console.log('Adding specific areas to focus on:', areasNeedingImprovement);
           effectiveSystemPrompt += "\nSpecific Areas:\n" + areasNeedingImprovement.map(area => `- ${area}`).join('\n');
         }
         
         if (metricsNeedingImprovement.length > 0) {
+          console.log('Adding metrics to improve:', metricsNeedingImprovement);
           effectiveSystemPrompt += "\nMetrics to Improve:\n" + metricsNeedingImprovement.map(metric => `- ${metric}`).join('\n');
         }
         
         effectiveSystemPrompt += "\n\nGenerate a problem that specifically targets these areas for improvement.";
+      } else {
+        console.log('No specific areas or metrics needing improvement found. Generating a balanced question.');
       }
+    } else {
+      console.log('No performance scores yet. Will prompt for job title.');
     }
 
     const messages = [
