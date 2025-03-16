@@ -43,7 +43,7 @@ export default function HomePage() {
         >
           <Button 
             size="lg"
-            onClick={() => router.push('/auth/login?redirect=/learn')}
+            onClick={() => router.push('/auth/login?redirect=/chat')}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-8"
           >
             Let's Go

@@ -41,6 +41,7 @@ export async function POST(req: Request) {
         name,
         email,
         password: hashedPassword,
+        updatedAt: new Date(),
       }
     })
 
@@ -50,7 +51,14 @@ export async function POST(req: Request) {
       email: user.email
     })
   } catch (error) {
-    console.error('Signup error:', error)
+    // Log the full error details
+    console.error('Signup error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      name: error instanceof Error ? error.name : 'Unknown',
+      stack: error instanceof Error ? error.stack : undefined,
+      error // Log the raw error object as well
+    })
+    
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })
   }
 } 
