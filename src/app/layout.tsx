@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vedh AI - Learn Programming",
+  title: "Round0 - Learn Programming",
   description: "AI-powered adaptive learning platform for programming interviews",
 };
 

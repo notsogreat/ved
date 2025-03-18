@@ -15,7 +15,7 @@ export function Header() {
         <div className="flex flex-1 items-center justify-between">
           <Link href="/" className="flex items-center space-x-2">
             <span className="font-bold bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent">
-              Vedh AI
+              Round0 AI
             </span>
           </Link>
           <div className="flex items-center gap-2">
