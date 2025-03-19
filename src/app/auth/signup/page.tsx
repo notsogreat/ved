@@ -19,17 +19,56 @@ import { Circle } from "lucide-react"
 export default function SignUpPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function onSubmit(event: React.SyntheticEvent) {
     event.preventDefault()
     setIsLoading(true)
+    setError(null)
 
-    // Add your signup logic here
-    
-    setTimeout(() => {
-      setIsLoading(false)
+    const form = event.target as HTMLFormElement
+    const formData = new FormData(form)
+    const name = formData.get('fullName') as string
+    const email = formData.get('email') as string
+    const password = formData.get('password') as string
+
+    try {
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, email, password }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to sign up')
+      }
+
+      // After successful signup, log the user in
+      const loginResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const loginData = await loginResponse.json()
+
+      if (!loginResponse.ok) {
+        throw new Error(loginData.error || 'Failed to login after signup')
+      }
+
+      // Redirect to chat page
       router.push('/chat')
-    }, 3000)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to sign up')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -81,63 +120,76 @@ export default function SignUpPage() {
                 Trust me, you made the right choice
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Full Name</Label>
-                <Input
-                  id="fullName"
-                  placeholder="John Doe"
-                  type="text"
-                  autoCapitalize="words"
-                  autoComplete="name"
-                  autoCorrect="off"
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  placeholder="name@example.com"
-                  type="email"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  autoCorrect="off"
-                  disabled={isLoading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  placeholder="Enter your password"
-                  type="password"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  disabled={isLoading}
-                />
-              </div>
-              <Button 
-                className="w-full" 
-                disabled={isLoading} 
-                onClick={onSubmit}
-              >
-                {isLoading && (
-                  <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            <CardContent>
+              <form onSubmit={onSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fullName">Full Name</Label>
+                  <Input
+                    id="fullName"
+                    name="fullName"
+                    placeholder="John Doe"
+                    type="text"
+                    autoCapitalize="words"
+                    autoComplete="name"
+                    autoCorrect="off"
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    placeholder="name@example.com"
+                    type="email"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    autoCorrect="off"
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    name="password"
+                    placeholder="Enter your password"
+                    type="password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
+                {error && (
+                  <div className="text-sm text-red-500 text-center">
+                    {error}
+                  </div>
                 )}
-                Sign Up
-              </Button>
+                <Button 
+                  type="submit"
+                  className="w-full" 
+                  disabled={isLoading} 
+                >
+                  {isLoading && (
+                    <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Sign Up
+                </Button>
 
-              <p className="text-center text-sm text-muted-foreground">
-                By clicking Sign Up, you agree to our{" "}
-                <Button variant="link" className="p-0 h-auto text-sm">
-                  Terms of Service
-                </Button>
-                {" "}and{" "}
-                <Button variant="link" className="p-0 h-auto text-sm">
-                  Privacy Policy
-                </Button>
-              </p>
+                <p className="text-center text-sm text-muted-foreground">
+                  By clicking Sign Up, you agree to our{" "}
+                  <Button variant="link" className="p-0 h-auto text-sm">
+                    Terms of Service
+                  </Button>
+                  {" "}and{" "}
+                  <Button variant="link" className="p-0 h-auto text-sm">
+                    Privacy Policy
+                  </Button>
+                </p>
+              </form>
             </CardContent>
           </Card>
         </motion.div>
