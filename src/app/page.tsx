@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useEffect } from "react"
+import { Header } from "@/components/layout/header"
 
 export default function HomePage() {
   const router = useRouter()
@@ -88,29 +89,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
-      <header className="fixed top-0 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-50">
-        <div className="container flex h-14 items-center">
-          <div className="flex items-center space-x-2">
-            <Circle className="h-6 w-6 text-primary" />
-            <span className="font-bold text-xl">Round0</span>
-          </div>
-          <div className="flex-1" />
-          <nav className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              onClick={() => router.push('/auth/login')}
-            >
-              Sign In
-            </Button>
-            <Button
-              onClick={() => router.push('/auth/signup')}
-            >
-              Get Started
-            </Button>
-          </nav>
-        </div>
-      </header>
+      <Header showSignIn={true} showSignUp={true} />
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 mt-14">
