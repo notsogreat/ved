@@ -14,6 +14,7 @@ import { Menu, Plus, MessageSquare, ChevronRight, HelpCircle } from "lucide-reac
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { formatDistanceToNow } from 'date-fns';
+import { FeedbackModal } from "@/components/feedback/FeedbackModal"
 
 interface ChatSession {
   id: string;
@@ -34,6 +35,7 @@ export function ChatSidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const router = useRouter();
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false)
   
   const fetchSessions = async () => {
     try {
@@ -63,85 +65,90 @@ export function ChatSidebar() {
   };
 
   return (
-    <div className="fixed left-4 top-4 z-50">
-      <Sheet open={isOpen} onOpenChange={setIsOpen}>
-        <SheetTrigger asChild>
-          <Button 
-            variant="outline" 
-            size="icon" 
-            className="h-8 w-8 border-[#343541]/20 bg-[#202123] hover:bg-[#2A2B32]"
-          >
-            <Menu className="h-4 w-4 text-[#ECECF1]" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent 
-          side="left" 
-          className="w-[260px] p-0 border-[#2A2B32] bg-[#202123]"
-        >
-          <SheetHeader className="px-2 py-2 border-b border-[#2A2B32]">
-            <SheetTitle className="text-[#ECECF1]">Ved AI Assistant</SheetTitle>
-            <SheetDescription className="text-[#ECECF1]/60">Your AI programming companion</SheetDescription>
-          </SheetHeader>
-          <div className="flex flex-col h-full p-2 space-y-4">
-            {/* New Chat Button */}
-            <Button
-              variant="outline"
-              className="w-full bg-transparent border border-[#343541]/20 hover:bg-[#343541] text-white hover:text-white"
-              onClick={handleNewChat}
+    <>
+      <div className="fixed left-4 top-4 z-50">
+        <Sheet open={isOpen} onOpenChange={setIsOpen}>
+          <SheetTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="icon" 
+              className="h-8 w-8 border-border bg-background hover:bg-accent"
             >
-              <Plus className="h-4 w-4 mr-2" />
-              New Chat
+              <Menu className="h-4 w-4" />
             </Button>
+          </SheetTrigger>
+          <SheetContent 
+            side="left" 
+            className="w-[300px] p-0 border-border bg-background"
+          >
+            <SheetHeader className="px-4 py-4 border-b">
+              <SheetTitle className="text-lg font-semibold">Round0 AI Assistant</SheetTitle>
+              <SheetDescription className="text-sm text-muted-foreground">
+                Your AI programming companion
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex flex-col h-full p-3 space-y-4">
+              {/* New Chat Button */}
+              <Button
+                variant="secondary"
+                className="w-full justify-start gap-2 font-medium"
+                onClick={handleNewChat}
+              >
+                <Plus className="h-4 w-4" />
+                New Chat
+              </Button>
 
-            {/* Navigation Section */}
-            <div className="space-y-1">
-              {navigationItems.map((item) => (
-                <Button
-                  key={item.label}
-                  variant="ghost"
-                  className="w-full justify-start text-sm font-normal text-[#ECECF1]/90 hover:bg-[#343541] hover:text-[#ECECF1]/90"
-                  onClick={() => router.push(item.href)}
-                >
-                  <item.icon className="h-4 w-4 mr-2" />
-                  {item.label}
-                </Button>
-              ))}
-            </div>
-
-            {/* Recent Chats Section */}
-            <div className="space-y-2">
-              <div className="px-2 text-xs font-medium text-[#ECECF1]/50 uppercase">
-                Recent Chats
+              {/* Navigation Section */}
+              <div className="space-y-1">
+                {navigationItems.map((item) => (
+                  <Button
+                    key={item.label}
+                    variant="ghost"
+                    className="w-full justify-start text-sm gap-2 font-normal text-foreground/80 hover:bg-accent"
+                    onClick={() => {
+                      if (item.label === 'Feedback') {
+                        setIsFeedbackOpen(true)
+                        setIsOpen(false)
+                      } else {
+                        router.push(item.href)
+                      }
+                    }}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Button>
+                ))}
               </div>
-              <ScrollArea className="h-[calc(100vh-280px)]">
-                <div className="space-y-1">
-                  {sessions.map((chat) => (
-                    <Button
-                      key={chat.id}
-                      variant="ghost"
-                      className="w-full justify-start text-sm font-normal text-[#ECECF1]/90 hover:bg-[#343541] hover:text-[#ECECF1]/90 py-1.5 px-2"
-                      onClick={() => handleSessionClick(chat.id)}
-                    >
-                      <MessageSquare className="h-4 w-4 mr-2 shrink-0" />
-                      <span className="truncate">{chat.title}</span>
-                    </Button>
-                  ))}
-                  {sessions.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-sm font-normal text-[#ECECF1]/50 hover:bg-[#343541] hover:text-[#ECECF1]/50 py-1.5 px-2"
-                      onClick={() => router.push('/chat/history')}
-                    >
-                      <ChevronRight className="h-4 w-4 mr-2" />
-                      View All
-                    </Button>
-                  )}
+
+              {/* Recent Chats Section */}
+              <div className="space-y-2">
+                <div className="px-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Recent Chats
                 </div>
-              </ScrollArea>
+                <ScrollArea className="h-[calc(100vh-280px)]">
+                  <div className="space-y-1 pr-2">
+                    {sessions.map((chat) => (
+                      <Button
+                        key={chat.id}
+                        variant="ghost"
+                        className="w-full justify-start text-sm gap-2 font-normal text-foreground/80 hover:bg-accent py-2"
+                        onClick={() => handleSessionClick(chat.id)}
+                      >
+                        <MessageSquare className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{chat.title}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
-          </div>
-        </SheetContent>
-      </Sheet>
-    </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+      <FeedbackModal 
+        isOpen={isFeedbackOpen} 
+        onClose={() => setIsFeedbackOpen(false)} 
+      />
+    </>
   );
 } 

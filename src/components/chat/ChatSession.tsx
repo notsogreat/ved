@@ -615,14 +615,6 @@ export function ChatSession({ chatId }: ChatSessionProps) {
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
               <Button
                 size="icon"
-                variant="ghost"
-                className="text-zinc-400 hover:text-white hover:bg-zinc-800"
-                disabled={isSubmitting}
-              >
-                <PaperClipIcon className="h-5 w-5" />
-              </Button>
-              <Button
-                size="icon"
                 className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
                 onClick={handleSubmit}
                 disabled={isSubmitting || !inputValue.trim()}

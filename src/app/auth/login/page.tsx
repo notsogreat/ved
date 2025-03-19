@@ -14,10 +14,12 @@ import {
   CardHeader, 
   CardTitle 
 } from "@/components/ui/card"
-import { Circle } from "lucide-react"
+import { Header } from "@/components/layout/header"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { login } = useAuth()
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,20 +34,8 @@ export default function LoginPage() {
     const password = formData.get('password') as string
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to login')
-      }
-
+      await login(email, password)
+      
       // Get the redirect URL from query params or default to /chat
       const searchParams = new URLSearchParams(window.location.search)
       const redirect = searchParams.get('redirect') || '/chat'
@@ -60,24 +50,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
-      <header className="fixed top-0 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-50">
-        <div className="container flex h-14 items-center">
-          <div className="flex items-center space-x-2">
-            <Circle className="h-6 w-6 text-primary" />
-            <span className="font-bold text-xl">Round0</span>
-          </div>
-          <div className="flex-1" />
-          <nav className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              onClick={() => router.push('/auth/signup')}
-            >
-              Sign Up
-            </Button>
-          </nav>
-        </div>
-      </header>
+      <Header showSignUp={true} />
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 mt-14">
