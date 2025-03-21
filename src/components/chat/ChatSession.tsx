@@ -562,8 +562,8 @@ export function ChatSession({ chatId }: ChatSessionProps) {
 
   if (isLoading || isLoadingMessages) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-black">
-        <div className="text-white">Loading...</div>
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-foreground">Loading...</div>
       </div>
     )
   }
@@ -573,10 +573,10 @@ export function ChatSession({ chatId }: ChatSessionProps) {
   }
 
   return (
-    <div className="fixed inset-0 flex bg-black">
+    <div className="fixed inset-0 flex bg-background">
       {/* Left side - Chat */}
-      <div className="w-1/2 border-r border-zinc-800 flex flex-col h-screen">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+      <div className="w-1/2 border-r border-border flex flex-col h-screen">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
           {messages.map((message, index) => (
             <div
               key={index}
@@ -585,8 +585,8 @@ export function ChatSession({ chatId }: ChatSessionProps) {
               <div
                 className={`max-w-[80%] rounded-lg px-4 py-2 ${
                   message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-zinc-800 text-white'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground'
                 }`}
               >
                 {message.role === 'assistant' ? (
@@ -601,35 +601,38 @@ export function ChatSession({ chatId }: ChatSessionProps) {
         </div>
 
         {/* Chat input */}
-        <div className="p-4 border-t border-zinc-800">
-          <div className="relative">
-            <Input
-              type="text"
+        <form className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full" onSubmit={(e) => e.preventDefault()}>
+          <div className="relative w-full">
+            <textarea
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder="Ask me about helping you crack some interviews..."
-              className="w-full pl-4 pr-24 py-6 bg-zinc-900 border-zinc-800 text-white rounded-xl shadow-lg focus:ring-2 focus:ring-blue-500"
+              rows={2}
+              className="flex w-full border border-input px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl !text-base bg-muted pb-10"
+              style={{ height: '98px' }}
               disabled={isSubmitting}
             />
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            
+            {/* Send Button */}
+            <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
               <Button
                 size="icon"
-                className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border dark:border-zinc-600"
                 onClick={handleSubmit}
                 disabled={isSubmitting || !inputValue.trim()}
               >
-                <ArrowUpIcon className="h-5 w-5" />
+                <ArrowUpIcon className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
-        </div>
+        </form>
       </div>
 
       {/* Right side - Code Editor */}
-      <div className="w-1/2 flex flex-col h-screen">
+      <div className="w-1/2 flex flex-col h-screen bg-[#1E1E1E]">
         {/* Header with language selector and buttons */}
-        <div className="border-b border-zinc-800 p-4">
+        <div className="border-b border-zinc-800 p-4 bg-[#1E1E1E]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <span className="text-sm font-medium text-zinc-400">Language:</span>
@@ -637,10 +640,10 @@ export function ChatSession({ chatId }: ChatSessionProps) {
                 value={selectedLanguage.id}
                 onValueChange={handleLanguageChange}
               >
-                <SelectTrigger className="w-[140px] h-8 bg-zinc-900 border-zinc-800 text-white">
+                <SelectTrigger className="w-[140px] h-8 bg-[#252526] border-zinc-800 text-white">
                   <SelectValue placeholder="Select language" />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-900 border-zinc-800">
+                <SelectContent className="bg-[#252526] border-zinc-800">
                   {SUPPORTED_LANGUAGES.map((language) => (
                     <SelectItem
                       key={language.id}
