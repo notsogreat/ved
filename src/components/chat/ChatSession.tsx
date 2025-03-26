@@ -97,6 +97,11 @@ const MarkdownMessage = ({ content }: { content: string }) => {
     li: ({ children, ...props }: MarkdownComponentProps) => (
       <li className="mb-1" {...props}>{children}</li>
     ),
+    pre: ({ children, ...props }: MarkdownComponentProps) => (
+      <pre className="bg-zinc-800 text-zinc-100 rounded-md p-4 mb-4 overflow-x-auto whitespace-pre font-mono text-sm" {...props}>
+        {children}
+      </pre>
+    ),
     code: ({ inline, className, children, ...props }: MarkdownComponentProps & { inline?: boolean, className?: string }) => {
       const match = /language-(\w+)/.exec(className || '')
       return !inline && match ? (
@@ -105,12 +110,19 @@ const MarkdownMessage = ({ content }: { content: string }) => {
           style={vscDarkPlus}
           PreTag="div"
           className="rounded-md mb-4"
+          showLineNumbers={false}
+          wrapLines={true}
+          customStyle={{
+            padding: '1rem',
+            whiteSpace: 'pre',
+            color: '#e4e4e7', // zinc-200 equivalent
+          }}
           {...props}
         >
           {String(children).replace(/\n$/, '')}
         </SyntaxHighlighter>
       ) : (
-        <code className="bg-zinc-800 rounded px-1.5 py-0.5 text-sm" {...props}>
+        <code className="bg-zinc-800 text-zinc-100 rounded px-1.5 py-0.5 text-sm" {...props}>
           {children}
         </code>
       )
