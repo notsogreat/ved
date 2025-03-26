@@ -1,0 +1,17 @@
+{
+  "test_hello_world": {
+    "body": "{\"code\": \"print('Hello from Python Lambda!')\", \"language\": \"python\"}"
+  },
+  "test_error_handling": {
+    "body": "{\"code\": \"print(1/0)\", \"language\": \"python\"}"
+  },
+  "test_infinite_loop": {
+    "body": "{\"code\": \"while True: pass\", \"language\": \"python\"}"
+  },
+  "test_multiple_lines": {
+    "body": "{\"code\": \"print('Line 1')\\nprint('Line 2')\\nprint('Line 3')\", \"language\": \"python\"}"
+  },
+  "test_missing_parameters": {
+    "body": "{\"code\": \"print('Hello')\"}"
+  }
+} 
