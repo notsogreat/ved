@@ -44,30 +44,25 @@ interface EvaluationResult {
   evaluation: string;
 }
 
-const SUPPORTED_LANGUAGES: Language[] = [
+const languages: Language[] = [
   {
-    id: 'javascript',
-    name: 'JavaScript',
-    extension: 'js',
-    defaultCode: '// Your JavaScript code here\n\n',
-  },
-  {
-    id: 'typescript',
-    name: 'TypeScript',
-    extension: 'ts',
-    defaultCode: '// Your TypeScript code here\n\n',
+    id: 'go',
+    name: 'Go',
+    extension: 'go',
+    defaultCode: `package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello from Go Lambda!")
+}`,
   },
   {
     id: 'python',
     name: 'Python',
     extension: 'py',
-    defaultCode: '# Your Python code here\n\n',
-  },
-  {
-    id: 'go',
-    name: 'Go',
-    extension: 'go',
-    defaultCode: 'package main\n\nimport "fmt"\n\nfunc main() {\n    // Your Go code here\n}\n',
+    defaultCode: `# Simple Python test
+print("Hello from Python Lambda!")`,
   },
 ]
 
@@ -167,8 +162,8 @@ export function ChatSession({ chatId }: ChatSessionProps) {
   const [inputValue, setInputValue] = useState("")
   const [messages, setMessages] = useState<Message[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedLanguage, setSelectedLanguage] = useState<Language>(SUPPORTED_LANGUAGES[0])
-  const [code, setCode] = useState(SUPPORTED_LANGUAGES[0].defaultCode)
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>(languages[0])
+  const [code, setCode] = useState(languages[0].defaultCode)
   const [output, setOutput] = useState("")
   const [error, setError] = useState("")
   const [isExecuting, setIsExecuting] = useState(false)
@@ -232,7 +227,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
         if (codeSubmission) {
           setCode(codeSubmission.code)
           // Find and set the language
-          const language = SUPPORTED_LANGUAGES.find(lang => lang.id === codeSubmission.language)
+          const language = languages.find(lang => lang.id === codeSubmission.language)
           if (language) {
             setSelectedLanguage(language)
           }
@@ -335,7 +330,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
   }
 
   const handleLanguageChange = (languageId: string) => {
-    const newLanguage = SUPPORTED_LANGUAGES.find(lang => lang.id === languageId)
+    const newLanguage = languages.find(lang => lang.id === languageId)
     if (newLanguage) {
       setSelectedLanguage(newLanguage)
       setCode(newLanguage.defaultCode)
@@ -644,7 +639,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
                   <SelectValue placeholder="Select language" />
                 </SelectTrigger>
                 <SelectContent className="bg-[#252526] border-zinc-800">
-                  {SUPPORTED_LANGUAGES.map((language) => (
+                  {languages.map((language) => (
                     <SelectItem
                       key={language.id}
                       value={language.id}
