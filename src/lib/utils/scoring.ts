@@ -80,8 +80,16 @@ export function generateInitialScores(jobTitle: string, userId: string, sessionI
   const jobLevel = determineJobLevel(jobTitle);
   const baseScores = baseScoreMatrix[jobLevel];
   
+  // Generate a clean UUID string without any wrapping characters
+  const id = uuidv4();
+  
+  // Validate that we have a proper UUID format
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error(`Invalid UUID generated: ${id}`);
+  }
+  
   return {
-    id: uuidv4(),
+    id,
     user_id: userId,
     session_id: sessionId,
     targetJobTitle: jobTitle,

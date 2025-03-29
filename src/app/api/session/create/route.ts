@@ -15,16 +15,27 @@ export async function POST(req: Request) {
     const userData = JSON.parse(user.value)
     const userId = userData.id
 
-    const { initialMessage } = await req.json()
+    const { sessionId } = await req.json()
 
-    // Create a basic session
+    // Create a basic session with provided ID and temporary title
     const chatSession = await prisma.chatSession.create({
       data: {
+        id: sessionId,
         userId: userId,
-        title: initialMessage?.slice(0, 50) + (initialMessage?.length > 50 ? '...' : '') || "New Chat Session"
+        title: "New Chat Session" // Temporary title
       }
     })
 
+    // // Save the initial message
+    // await prisma.chatMessage.create({
+    //   data: {
+    //     sessionId: chatSession.id,
+    //     sender: MessageSender.user,
+    //     messageType: MessageType.general,
+    //   }
+    // })
+
+    // Return the session ID immediately
     return NextResponse.json({ 
       sessionId: chatSession.id 
     })
