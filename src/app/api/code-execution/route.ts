@@ -13,7 +13,7 @@ const lambda = new LambdaClient({
 export async function POST(request: Request) {
   try {
     const { code, language } = await request.json();
-    console.log('Invoking Lambda with:', { code, language });
+    console.log('Received request:', { code, language });
 
     const functionName = lambdaConfig.functionNames[language];
     if (!functionName) {
@@ -23,11 +23,16 @@ export async function POST(request: Request) {
       );
     }
 
+    // Different payload structure for Go vs Python
+    const payload = language === 'go' 
+      ? { code }  // Send code directly for Go
+      : { body: JSON.stringify({ code, language }) };  // Keep existing structure for Python
+    
+    console.log('Sending to Lambda:', { functionName, payload });
+
     const command = new InvokeCommand({
       FunctionName: functionName,
-      Payload: Buffer.from(JSON.stringify({ 
-        body: JSON.stringify({ code, language })
-      })),
+      Payload: Buffer.from(JSON.stringify(payload)),
     });
 
     const response = await lambda.send(command);
@@ -45,18 +50,32 @@ export async function POST(request: Request) {
     console.log('Parsed result:', result);
 
     // Handle Lambda response format
-    if (result.statusCode === 200) {
-      const body = JSON.parse(result.body);
-      return NextResponse.json({
-        output: body.output || '',
-        error: body.error || null
-      });
+    if (language === 'python') {
+      if (result.statusCode === 200) {
+        const body = JSON.parse(result.body);
+        return NextResponse.json({
+          output: body.output || '',
+          error: body.error || null
+        });
+      } else {
+        const body = JSON.parse(result.body);
+        return NextResponse.json(
+          { error: body.error || 'Unknown error occurred' },
+          { status: result.statusCode }
+        );
+      }
     } else {
-      const body = JSON.parse(result.body);
-      return NextResponse.json(
-        { error: body.error || 'Unknown error occurred' },
-        { status: result.statusCode }
-      );
+      // Handle Go Lambda response
+      if (result.error) {
+        return NextResponse.json(
+          { error: result.error },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({
+        output: result.output || '',
+        error: result.error || null
+      });
     }
   } catch (error) {
     console.error('Error executing code:', error);

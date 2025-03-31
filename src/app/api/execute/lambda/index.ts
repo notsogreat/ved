@@ -54,9 +54,28 @@ except Exception as e:
 
 export const handler = async (event: any) => {
   try {
-    const { code, language } = JSON.parse(event.body || event)
+    console.log('Received event:', JSON.stringify(event, null, 2));
+    
+    // Handle different event formats
+    let body;
+    if (typeof event === 'string') {
+      body = JSON.parse(event);
+    } else if (event.body) {
+      body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    } else {
+      body = event;
+    }
+    
+    console.log('Parsed body:', JSON.stringify(body, null, 2));
+    
+    // Extract code and language from the body
+    const code = body.code;
+    const language = body.language;
+    
+    console.log('Extracted parameters:', { code, language });
     
     if (!code || !language) {
+      console.error('Missing parameters:', { code: !!code, language: !!language });
       return {
         statusCode: 400,
         body: JSON.stringify({

@@ -18,6 +18,44 @@ type ChatMessage = {
   content: string;
 };
 
+// Add function to check if codepad is needed
+function needsCodepad(content: string): boolean {
+  const keywords = [
+    'Problem Title:', 
+    'Test Cases:', 
+    'Example:', 
+    'Input:', 
+    'Output:', 
+    'Constraints:',
+    'write code',
+    'implement',
+    'solution',
+    'code implementation',
+    'solve this problem',
+    'programming challenge',
+    'coding question'
+  ];
+  
+  return keywords.some(keyword => content.includes(keyword));
+}
+
+// Add function to check if notepad is needed
+function needsNotepad(content: string): boolean {
+  const keywords = [
+    'Take notes',
+    'Notepad',
+    'Write down',
+    'System design',
+    'Draw diagram',
+    'Document your thoughts',
+    'Problem analysis',
+    'Algorithm steps',
+    'pseudocode'
+  ];
+  
+  return keywords.some(keyword => content.includes(keyword));
+}
+
 const systemPrompt = `
 You are Ved AI's problem generator, specialized in creating high-quality programming interview questions and helping software engineers prepare for technical interviews. 
 Your role is to generate clear, well-structured programming problems that test important concepts.
@@ -40,7 +78,19 @@ Example response for missing job title:
 
 IMPORTANT: As soon as you identify a job title from the user, call the storeUserPerformanceScores tool with the job title ONLY ONCE. Do not call it again for the same job title later in the conversation. This is critical for tracking user progress.
 
-2. Once you have the job title, Generate Problem with this structure:
+After collecting the job title and calling the storeUserPerformanceScores tool, ALWAYS ask for any missing information from the list above before generating a problem. Do not generate a problem until you have collected all the required information.
+
+Example follow-up response after getting the job title:
+"Great! To tailor the interview questions perfectly for your Lead Software Engineer position, I need a few more details:
+- What types of companies are you targeting? (Big Tech, startups, etc.)
+- Which programming languages do you prefer to work with?
+- How much time do you have for preparation?
+- How would you rate your current skill level? (beginner, intermediate, advanced)
+- Any specific topics or concepts you'd like to focus on?"
+
+Only after collecting this information (or if the user explicitly asks to proceed without providing all details), proceed to step 2.
+
+2. Once you have the necessary information, Generate Problem with this structure:
    [ALWAYS START WITH 2 LINES EXPLAINING WHY THIS SPECIFIC PROBLEM WAS CHOSEN AND HOW IT WILL HELP THE USER IMPROVE]
    
    Problem Title: A clear, concise title
@@ -98,6 +148,12 @@ IMPORTANT GUIDELINES:
    - If "communication" needs improvement, require detailed explanation of approach
 
 Remember: Focus only on generating the problem. Do not provide solutions or implementation hints unless specifically requested.
+
+4. Importantly, ALWAYS explicitly indicate when a user needs a codepad or notepad to solve the problem, by including this phrase near the beginning of your response:
+   "For this problem, you will need a codepad to write and test your solution."
+   OR
+   "For this problem, you will need a notepad to document your approach."
+   OR both if applicable.
 `
 
 export async function POST(req: Request) {
@@ -190,9 +246,15 @@ export async function POST(req: Request) {
         "If the user hasn't provided their target job title, ALWAYS ask for it first before proceeding with any other response.\nExample response for missing job title:\n\"To provide you with the most relevant interview questions, could you please let me know what job title you're targeting? (e.g., Software Engineer, Senior Software Engineer, Lead Software Engineer, etc.)\"",
         "Focus on delivering appropriate programming problems for the user's job title which has already been recorded."
       );
+      
+      // Remove the example follow-up response after getting job title since we already have the job title
+      effectiveSystemPrompt = effectiveSystemPrompt.replace(
+        "After collecting the job title and calling the storeUserPerformanceScores tool, ALWAYS ask for any missing information from the list above before generating a problem. Do not generate a problem until you have collected all the required information.\n\nExample follow-up response after getting the job title:\n\"Great! To tailor the interview questions perfectly for your Lead Software Engineer position, I need a few more details:\n- What types of companies are you targeting? (Big Tech, startups, etc.)\n- Which programming languages do you prefer to work with?\n- How much time do you have for preparation?\n- How would you rate your current skill level? (beginner, intermediate, advanced)\n- Any specific topics or concepts you'd like to focus on?\"",
+        "If you don't have all the user's preparation details yet, ask for any missing information from the following list before generating a problem:\n- Target companies (Big Tech, startups, etc.)\n- Preferred programming languages\n- Preparation timeframe\n- Current skill level\n- Specific topic/concept (if any)"
+      );
     } else {
       // Add a guidance note to ensure the AI continues its response after calling the tool
-      effectiveSystemPrompt += "\n\nVERY IMPORTANT: After calling the storeUserPerformanceScores tool, you MUST continue with your response. Do not wait for further user input. Immediately proceed to generate an appropriate programming problem for the user.";
+      effectiveSystemPrompt += "\n\nVERY IMPORTANT: After calling the storeUserPerformanceScores tool, you MUST continue with your response. Do not wait for further user input. Immediately proceed to ask for the remaining required information as described in the workflow.";
     }
     
     // Create properly formatted messages for AI SDK
@@ -314,7 +376,7 @@ export async function POST(req: Request) {
               hasStoredScores = true;
               
               console.log(`[TOOL] Stored scores with ID: ${result.id}`);
-              return `Successfully stored initial performance scores for job title: ${jobTitle}. Now, please continue by generating an appropriate programming problem for this user.`;
+              return `Successfully stored initial performance scores for job title: ${jobTitle}. Now, please continue by asking the user for additional information needed for tailored interview questions (target companies, preferred languages, preparation timeframe, skill level, and specific topics of interest).`;
             } catch (error: any) {
               console.error('[TOOL] Error storing scores:', error.message);
               
@@ -334,8 +396,71 @@ export async function POST(req: Request) {
       },
     });
 
-    // Return the AI SDK stream with proper tool call streaming support
-    return result.toDataStreamResponse();
+    // Process the result to add metadata after the content is streamed
+    const response = await result.toDataStreamResponse();
+    const originalReadable = response.body;
+    
+    if (!originalReadable) {
+      return response; // Just return the original response if body is null
+    }
+    
+    // Create a new response with modified stream
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          const reader = originalReadable.getReader();
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder();
+          let fullContent = '';
+          
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              
+              if (done) {
+                // After all content is processed, add metadata about codepad/notepad
+                const needsCodepadValue = needsCodepad(fullContent);
+                const needsNotepadValue = needsNotepad(fullContent);
+                
+                // Only add metadata if codepad or notepad is needed
+                if (needsCodepadValue || needsNotepadValue) {
+                  const metadata = JSON.stringify({
+                    metadata: {
+                      needsCodepad: needsCodepadValue,
+                      needsNotepad: needsNotepadValue
+                    }
+                  });
+                  
+                  // Send metadata as a special event in the stream
+                  controller.enqueue(encoder.encode(`\n\nevent: metadata\ndata: ${metadata}\n\n`));
+                }
+                
+                controller.close();
+                break;
+              }
+              
+              // Collect all content to analyze at the end
+              const decoded = decoder.decode(value, { stream: true });
+              fullContent += decoded;
+              
+              // Forward the original chunk
+              controller.enqueue(value);
+            }
+          } catch (error) {
+            console.error('Stream processing error:', error);
+            controller.error(error);
+          }
+        }
+      }),
+      {
+        headers: new Headers({
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          'Connection': 'keep-alive',
+          ...Object.fromEntries(response.headers.entries())
+        })
+      }
+    );
 
   } catch (error: any) {
     console.error('API error:', error)

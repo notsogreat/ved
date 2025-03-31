@@ -4,14 +4,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useParams } from "next/navigation"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { PaperClipIcon, ArrowUpIcon } from "@heroicons/react/24/outline"
+import { PaperClipIcon, ArrowUpIcon, PlayIcon } from "@heroicons/react/24/outline"
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 import { v4 as uuidv4 } from 'uuid'
 import { Header } from "@/components/layout/header"
 import { cn } from "@/lib/utils"
-import { Circle, User } from 'lucide-react'
+import { Circle, User, Code, FileText, X, ArrowRight, Save } from 'lucide-react'
 import { useChat } from '@ai-sdk/react'
+import Editor from '@monaco-editor/react'
+import { CodeEditorPanel } from "@/components/chat/CodeEditorPanel"
+import { NotepadPanel } from "@/components/chat/NotepadPanel"
 
 const suggestions = [
   { 
@@ -54,6 +57,96 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
   const messageEndRef = useRef<HTMLDivElement>(null)
   const chatIdRef = useRef<string | null>(null)
   const [storedMessages, setStoredMessages] = useState<any[]>([])
+  const savedMessageIdsRef = useRef<Set<string>>(new Set())
+  const [showCodepad, setShowCodepad] = useState(false)
+  const [showNotepad, setShowNotepad] = useState(false)
+  const [isEvaluating, setIsEvaluating] = useState(false)
+  const [currentProblem, setCurrentProblem] = useState("")
+  const [pendingSaves, setPendingSaves] = useState<{[key: string]: NodeJS.Timeout}>({})
+  const [messagesLoaded, setMessagesLoaded] = useState(false)
+  
+  // Function to save message with delay
+  const saveMessageWithDelay = useCallback(async (currentId: string, message: string, role: string, messageId: string) => {
+    try {
+      // Wait a short time to ensure message is complete (3 seconds)
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Save assistant message to database
+      await fetch(`/api/chat/${currentId}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message,
+          role
+        })
+      });
+      
+      console.log(`Successfully saved message: ${message.substring(0, 40)}...`);
+    } catch (err) {
+      console.error("Error saving message to database:", err);
+    } finally {
+      // Clear from pending saves
+      setPendingSaves(prev => {
+        const newPending = {...prev};
+        delete newPending[messageId];
+        return newPending;
+      });
+    }
+  }, []);
+  
+  // Load stored messages from localStorage
+  const loadStoredMessages = useCallback((id: string) => {
+    try {
+      const key = `${MESSAGE_STORAGE_PREFIX}${id}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.length > 0) {
+          setStoredMessages(parsed);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading stored messages:", error);
+    }
+  }, []);
+  
+  // Add function to fetch messages from database
+  const fetchMessagesFromDatabase = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`/api/chat/${id}/messages`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch messages');
+      }
+      
+      const fetchedMessages = await response.json();
+      
+      if (fetchedMessages && fetchedMessages.length > 0) {
+        // Transform to format expected by useChat
+        const formattedMessages = fetchedMessages.map((msg: any) => ({
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          role: msg.role,
+          content: msg.content,
+          parts: [{ type: 'text', text: msg.content }]
+        }));
+        
+        // Set the messages in the AI SDK
+        setStoredMessages(formattedMessages);
+        
+        // Mark all these messages as already saved in the database
+        // This prevents re-saving them when the useEffect runs
+        fetchedMessages.forEach((msg: any) => {
+          const stableMessageId = `db-${msg.role}-${msg.content.length}`;
+          savedMessageIdsRef.current.add(stableMessageId);
+        });
+      }
+      
+      // Mark messages as loaded
+      setMessagesLoaded(true);
+    } catch (error) {
+      console.error('Error fetching messages from database:', error);
+      setMessagesLoaded(true); // Mark as loaded even on error
+    }
+  }, []);
   
   // Initialize conversation ID from props or params
   useEffect(() => {
@@ -65,32 +158,20 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
                 Array.isArray(params.id) ? params.id[0] : null);
       
       if (id) {
-        console.log(`Initial conversation ID set: ${id}`);
         chatIdRef.current = id;
         setConversationId(id);
         
         // Load stored messages for this conversation
         loadStoredMessages(id);
+        
+        // Fetch messages from the database
+        fetchMessagesFromDatabase(id);
+      } else {
+        // No ID means a new conversation, so mark messages as loaded
+        setMessagesLoaded(true);
       }
     }
-  }, [initialConversationId, params]);
-  
-  // Load stored messages from localStorage
-  const loadStoredMessages = useCallback((id: string) => {
-    try {
-      const key = `${MESSAGE_STORAGE_PREFIX}${id}`;
-      const stored = localStorage.getItem(key);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.length > 0) {
-          console.log(`Loaded ${parsed.length} messages for session ${id}`);
-          setStoredMessages(parsed);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading stored messages:", error);
-    }
-  }, []);
+  }, [initialConversationId, params, loadStoredMessages, fetchMessagesFromDatabase]);
   
   // Setup AI SDK useChat hook
   const { 
@@ -101,7 +182,7 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     setInput,
     append,
     isLoading: isChatLoading,
-    error
+    error: chatError
   } = useChat({
     api: '/api/chat/stream',
     id: chatIdRef.current || conversationId || undefined,
@@ -121,8 +202,8 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
       }
     },
     onToolCall: async (tool) => {
-      // Only log tool name for clarity
-      if (tool.toolCall) {
+      // Only log tool name for clarity if in development
+      if (tool.toolCall && process.env.NODE_ENV === 'development') {
         console.log(`[TOOL] Received tool call: ${tool.toolCall.toolName || 'unknown'}`);
         
         // For server-side tools, we just acknowledge and let the server handle it
@@ -137,6 +218,32 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     },
     onFinish: async (message) => {
       try {
+        // Check if codepad or notepad is needed based on the message content
+        const messageContent = message.content || '';
+        
+        // Check for codepad needs - use a more aggressive detection approach
+        if (messageContent.includes('you will need a codepad') ||
+            messageContent.includes('you need a codepad') ||
+            messageContent.includes('codepad to write') || 
+            messageContent.includes('write code') || 
+            messageContent.includes('implement') || 
+            messageContent.includes('solution') ||
+            messageContent.includes('Problem Title:') ||
+            messageContent.includes('Test Cases:')) {
+          setShowCodepad(true);
+        }
+        
+        // Check for notepad needs
+        if (messageContent.includes('you will need a notepad') ||
+            messageContent.includes('you need a notepad') ||
+            messageContent.includes('notepad to document') ||
+            messageContent.includes('take notes') || 
+            messageContent.includes('document your') ||
+            messageContent.includes('system design') ||
+            messageContent.includes('pseudocode')) {
+          setShowNotepad(true);
+        }
+        
         // Get the current ID
         const currentId = chatIdRef.current || conversationId;
         if (!currentId) {
@@ -145,61 +252,62 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         }
         
         // Get message content safely
-        const messageContent = message.parts && message.parts[0]?.type === 'text' 
-          ? message.parts[0].text 
-          : message.content || '';
+        let messageContentSafe = '';
+        if (message.parts && message.parts.length > 0) {
+          // Join all text parts and filter out empty ones
+          messageContentSafe = message.parts
+            .map(part => part.type === 'text' ? part.text : '')
+            .filter(text => text.trim() !== '')
+            .join('\n');
+        } else if (message.content) {
+          messageContentSafe = message.content;
+        }
         
         // Skip empty messages or messages that only contain whitespace
-        if (!messageContent || messageContent.trim() === '') {
-          console.log('Skipping empty assistant message');
+        if (!messageContentSafe || messageContentSafe.trim() === '') {
           return;
         }
         
-        console.log(`Saving assistant message for conversation: ${currentId}`);
+        // Generate a more stable message ID for tracking
+        const stableMessageId = `${message.id}-${messageContentSafe.length}`;
         
-        // Save assistant message to database
-        try {
-          await fetch(`/api/chat/${currentId}/message`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              message: messageContent,
-              role: 'assistant'
-            })
-          });
-        } catch (err) {
-          console.error("Error saving assistant message to database:", err);
-        }
-        
-        // We don't need to update the local state anymore because the AI SDK is now handling messages
-        // Just update localStorage for redundancy (for page refreshes)
-        const key = `${MESSAGE_STORAGE_PREFIX}${currentId}`;
-        // Use the full messages array from the AI SDK instead of maintaining our own
-        const allMessages = messages.map(msg => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content
-        }));
-        
-        // Make sure to include the current assistant message
-        const assistantMsg = {
-          id: message.id,
-          role: 'assistant',
-          content: messageContent
-        };
-        
-        // Check if the message already exists in the array
-        const messageExists = allMessages.some(msg => 
-          msg.role === 'assistant' && msg.content === messageContent
-        );
-        
-        // Create the updated messages array
-        const updatedMessages = messageExists 
-          ? allMessages 
-          : [...allMessages, assistantMsg];
+        // Only save if not already saved with the same content length
+        if (!savedMessageIdsRef.current.has(stableMessageId) && 
+            !savedMessageIdsRef.current.has(message.id) &&
+            !savedMessageIdsRef.current.has(`db-assistant-${messageContentSafe.length}`)) {
+          // We only want to save complete messages
+          // For coding problems, ensure the whole problem is included
+          const isComplete = !messageContentSafe.includes('Problem Title:') || 
+                           (messageContentSafe.includes('Problem Title:') && 
+                            isCompleteProblem(messageContentSafe));
           
-        // Save to localStorage
-        localStorage.setItem(key, JSON.stringify(updatedMessages));
+          if (isComplete) {
+            // Mark this message as saved
+            savedMessageIdsRef.current.add(stableMessageId);
+            
+            // Also mark the original message ID to prevent duplicates
+            savedMessageIdsRef.current.add(message.id);
+            
+            // Schedule message saving with delay
+            console.log(`Scheduling save for message: ${messageContentSafe.substring(0, 40)}...`);
+            
+            // Cancel any existing pending save for this message
+            if (pendingSaves[stableMessageId]) {
+              clearTimeout(pendingSaves[stableMessageId]);
+            }
+            
+            // Create new save timeout
+            const saveTimeout = setTimeout(() => {
+              saveMessageWithDelay(currentId, messageContentSafe, 'assistant', stableMessageId);
+            }, 1000);
+            
+            // Store the timeout reference
+            setPendingSaves(prev => ({
+              ...prev,
+              [stableMessageId]: saveTimeout
+            }));
+          }
+        }
       } catch (error) {
         console.error('Error in onFinish:', error);
       }
@@ -220,8 +328,8 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         content: msg.content
       }));
       
-      // Log only the message content for debugging
-      if (currentMessage) {
+      // Log only the message content for debugging in development
+      if (currentMessage && process.env.NODE_ENV === 'development') {
         console.log(`Sending message: "${currentMessage.substring(0, 40)}${currentMessage.length > 40 ? '...' : ''}"`);
       }
       
@@ -244,7 +352,6 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     if (!chatIdRef.current) {
       // Generate new UUID
       const newId = uuidv4();
-      console.log(`Creating new conversation with ID: ${newId}`);
       
       try {
         // Create session
@@ -261,7 +368,6 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         // Update references
         chatIdRef.current = newId;
         setConversationId(newId);
-        console.log(`Created new session: ${newId}`);
         
         // Update URL without navigation
         isRouteChanging.current = true;
@@ -309,17 +415,127 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     
   }, [input, isChatLoading, aiHandleSubmit]);
 
-  // Scroll to bottom when messages change
+  // Add a more aggressive detector with case-insensitive checks
+  const shouldShowCodepad = (content: string): boolean => {
+    const lowerContent = content.toLowerCase();
+    return (
+      lowerContent.includes('for this problem, you will need a codepad') ||
+      lowerContent.includes('you will need a codepad') ||
+      lowerContent.includes('you need a codepad') ||
+      lowerContent.includes('problem title:') ||
+      (lowerContent.includes('test case') || lowerContent.includes('example:') || lowerContent.includes('input:')) ||
+      (lowerContent.includes('implement') && lowerContent.includes('solution')) ||
+      (lowerContent.includes('algorithm') && lowerContent.includes('implement')) ||
+      (lowerContent.includes('coding') && lowerContent.includes('interview'))
+    );
+  };
+
+  // Add a helper to check if a problem description is complete
+  const isCompleteProblem = (content: string): boolean => {
+    const lowerContent = content.toLowerCase();
+    
+    // Must have a problem title
+    if (!lowerContent.includes('problem title:')) {
+      return false;
+    }
+    
+    // Must have at least one of these sections to be considered complete
+    return (
+      lowerContent.includes('test case') || 
+      lowerContent.includes('example:') || 
+      lowerContent.includes('input:') ||
+      lowerContent.includes('output:') ||
+      lowerContent.includes('constraints:') ||
+      (lowerContent.includes('given') && lowerContent.includes('return'))
+    );
+  };
+
+  // Add notepad detector as well
+  const shouldShowNotepad = (content: string): boolean => {
+    const lowerContent = content.toLowerCase();
+    return (
+      lowerContent.includes('for this problem, you will need a notepad') ||
+      lowerContent.includes('you will need a notepad') ||
+      lowerContent.includes('you need a notepad') ||
+      lowerContent.includes('take notes') ||
+      (lowerContent.includes('system design') && lowerContent.includes('document'))
+    );
+  };
+
+  // Updated hook to use both functions
   useEffect(() => {
+    // Check all assistant messages to see if we need to show codepad or notepad
+    for (const message of messages) {
+      if (message.role === 'assistant' && message.content) {
+        // Remove verbose logging and only check functionality
+
+        if (shouldShowCodepad(message.content)) {
+          setShowCodepad(true);
+          
+          // Check if this message has a problem title but hasn't been saved explicitly
+          if (message.content.includes('Problem Title:') && 
+              isCompleteProblem(message.content)) {
+            
+            // Generate a more stable message ID for tracking
+            const stableMessageId = `${message.id}-${message.content.length}`;
+            
+            // Only save if not already marked as saved
+            if (!savedMessageIdsRef.current.has(stableMessageId) &&
+                !savedMessageIdsRef.current.has(`db-assistant-${message.content.length}`)) {
+              
+              // Mark this message as saved
+              savedMessageIdsRef.current.add(stableMessageId);
+              savedMessageIdsRef.current.add(message.id);
+              
+              console.log(`Saving problem from useEffect: ${message.content.substring(0, 40)}...`);
+              
+              // Cancel any existing pending save for this message
+              if (pendingSaves[stableMessageId]) {
+                clearTimeout(pendingSaves[stableMessageId]);
+              }
+              
+              // Get the current conversation ID
+              const currentId = chatIdRef.current || conversationId;
+              
+              // Only proceed if we have a valid conversation ID
+              if (currentId) {
+                // Create new save timeout
+                const saveTimeout = setTimeout(() => {
+                  saveMessageWithDelay(currentId, message.content, 'assistant', stableMessageId);
+                }, 1000);
+                
+                // Store the timeout reference
+                setPendingSaves(prev => ({
+                  ...prev,
+                  [stableMessageId]: saveTimeout
+                }));
+              }
+            }
+          }
+        }
+        
+        if (shouldShowNotepad(message.content)) {
+          setShowNotepad(true);
+        }
+      }
+    }
+    
+    // Extract problem information from messages
+    const lastAssistantMessage = messages.filter(m => m.role === 'assistant').pop();
+    if (lastAssistantMessage?.content && lastAssistantMessage.content.includes('Problem Title:')) {
+      setCurrentProblem(lastAssistantMessage.content);
+    }
+    
+    // Scroll to bottom when messages change
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, conversationId, saveMessageWithDelay, pendingSaves]);
 
   // Display error if any
   useEffect(() => {
-    if (error) {
-      toast.error('An error occurred: ' + error.message);
+    if (chatError) {
+      toast.error('An error occurred: ' + chatError.message);
     }
-  }, [error]);
+  }, [chatError]);
 
   // Handle suggestion clicks
   const handleSuggestionClick = useCallback((suggestion: string) => {
@@ -329,11 +545,36 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
       handleSubmit(event);
     }, 100);
   }, [setInput, handleSubmit]);
+  
+  // Cleanup pending saves on unmount
+  useEffect(() => {
+    return () => {
+      // Clear all pending timeouts
+      Object.values(pendingSaves).forEach(timeout => clearTimeout(timeout));
+    };
+  }, [pendingSaves]);
+
+  // Update currentProblem when receiving a new problem from the AI
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage?.role === 'assistant' && lastMessage.content.includes('Problem Title:')) {
+      setCurrentProblem(lastMessage.content)
+    }
+  }, [messages])
 
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // Add loading state for when a conversation ID exists but messages are still loading
+  if (conversationId && !messagesLoaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="text-foreground">Loading messages...</div>
       </div>
     );
   }
@@ -347,124 +588,177 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
   return (
     <main className="relative flex min-h-svh flex-1 flex-col bg-background">
       <div className="flex flex-col min-w-0 h-dvh bg-background">
-        {/* Sticky Header */}
-        <header className="flex sticky top-0 bg-background py-1.5 items-center px-2 md:px-2 gap-2 z-10">
-          <Header showSignOut={true} onSignOut={() => router.push('/auth/login')} />
-        </header>
+        {/* Sticky Header - Hide when codepad/notepad is shown */}
+        {!(showCodepad || showNotepad) && (
+          <header className="flex sticky top-0 bg-background py-1.5 items-center px-2 md:px-2 gap-2 z-10">
+            <Header showSignOut={true} onSignOut={() => router.push('/auth/login')} />
+          </header>
+        )}
 
-        {/* Scrollable Content Area */}
-        <div className="flex flex-col flex-1 overflow-y-auto">
-          {!hasMessages && (
-            <div className="flex justify-center items-center flex-col w-full flex-1">
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Circle className="h-8 w-8 text-primary" />
+        {/* Main Layout - Split view when codepad or notepad is shown */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Chat Area - Takes full width when no codepad/notepad, otherwise left side */}
+          <div className={cn(
+            "flex flex-col flex-1 relative overflow-hidden transition-all duration-300 ease-in-out",
+            (showCodepad || showNotepad) && "w-1/2 border-r border-border"
+          )}>
+            {!hasMessages && (
+              <div className="flex justify-center items-center flex-col w-full flex-1">
+                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <Circle className="h-8 w-8 text-primary" />
+                </div>
+                <h1 className="text-2xl font-bold mb-2">Round0 AI Assistant</h1>
+                <p className="text-muted-foreground max-w-md text-center px-4">
+                  This is an AI-powered interview preparation assistant. It helps you practice coding problems,
+                  system design, and behavioral questions tailored to your target companies.
+                </p>
               </div>
-              <h1 className="text-2xl font-bold mb-2">Round0 AI Assistant</h1>
-              <p className="text-muted-foreground max-w-md text-center px-4">
-                This is an AI-powered interview preparation assistant. It helps you practice coding problems,
-                system design, and behavioral questions tailored to your target companies.
-              </p>
-            </div>
-          )}
+            )}
 
-          {/* Messages */}
-          <div className="max-w-4xl w-full mx-auto">
-            {messages.map((message) => (
-              <div key={message.id} className={cn("mb-6", messages.indexOf(message) === 0 && "mt-4")}>
-                <div className={cn(
-                  "flex items-start gap-3 px-4",
-                )}>
-                  {message.role === 'assistant' ? (
-                    <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                      <Circle className="h-4 w-4 text-primary" />
+            {/* Quick access buttons for codepad/notepad */}
+            {hasMessages && !(showCodepad || showNotepad) && (
+              <div className="flex justify-end px-4 py-2 space-x-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center space-x-1"
+                  onClick={() => setShowCodepad(true)}
+                >
+                  <Code className="h-3.5 w-3.5 mr-1" />
+                  <span>Codepad</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex items-center space-x-1"
+                  onClick={() => setShowNotepad(true)}
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1" />
+                  <span>Notepad</span>
+                </Button>
+              </div>
+            )}
+
+            {/* Scrollable Messages Container */}
+            <div className="flex-1 overflow-y-auto pb-[130px]">
+              <div className="max-w-4xl w-full mx-auto">
+                {messages.map((message) => (
+                  <div key={message.id} className={cn("mb-6", messages.indexOf(message) === 0 && "mt-4")}>
+                    <div className={cn(
+                      "flex items-start gap-3 px-4",
+                    )}>
+                      {message.role === 'assistant' ? (
+                        <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                          <Circle className="h-4 w-4 text-primary" />
+                        </div>
+                      ) : (
+                        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0 mt-1">
+                          <User className="h-4 w-4 text-foreground" />
+                        </div>
+                      )}
+                      <div className="flex-1 space-y-2 overflow-hidden">
+                        <div className="font-medium text-sm">
+                          {message.role === 'user' ? 'You' : 'AI Assistant'}
+                        </div>
+                        <div className="prose dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:mb-4 prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6 prose-ul:space-y-2 prose-li:marker:text-primary">
+                          {message.parts?.map((part, i) => {
+                            if (part.type === 'text') {
+                              return part.text.split('\n').map((paragraph, j) => (
+                                <p key={`${message.id}-${i}-${j}`} className="whitespace-pre-wrap">{paragraph}</p>
+                              ));
+                            }
+                            return null;
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0 mt-1">
-                      <User className="h-4 w-4 text-foreground" />
+                  </div>
+                ))}
+                {/* Invisible element to scroll to */}
+                <div ref={messageEndRef} />
+              </div>
+            </div>
+            
+            {/* Fixed Chat Input at Bottom */}
+            <div className={cn("absolute bottom-0 left-0 right-0 border-t border-border bg-background", (showCodepad || showNotepad) ? "w-full" : "w-full max-w-4xl mx-auto")}>
+              <form className="flex px-4 py-3 md:py-4 gap-2 w-full" onSubmit={handleSubmit}>
+                <div className="relative w-full flex flex-col gap-4">
+                  {/* Suggestions Grid - Only show when no messages */}
+                  {!hasMessages && (
+                    <div className="grid sm:grid-cols-2 gap-2 w-full">
+                      {suggestions.map((suggestion) => (
+                        <motion.div
+                          key={suggestion.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="block"
+                        >
+                          <button
+                            className="inline-flex whitespace-nowrap font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground text-left border rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
+                            onClick={() => handleSuggestionClick(`${suggestion.title} ${suggestion.subtitle}`)}
+                          >
+                            <span className="font-medium">{suggestion.title}</span>
+                            <span className="text-muted-foreground">{suggestion.subtitle}</span>
+                          </button>
+                        </motion.div>
+                      ))}
                     </div>
                   )}
-                  <div className="flex-1 space-y-2 overflow-hidden">
-                    <div className="font-medium text-sm">
-                      {message.role === 'user' ? 'You' : 'AI Assistant'}
-                    </div>
-                    <div className="prose dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:mb-4 prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6 prose-ul:space-y-2 prose-li:marker:text-primary">
-                      {message.parts?.map((part, i) => {
-                        if (part.type === 'text') {
-                          return part.text.split('\n').map((paragraph, j) => (
-                            <p key={`${message.id}-${i}-${j}`} className="whitespace-pre-wrap">{paragraph}</p>
-                          ));
+
+                  {/* Chat Input */}
+                  <div className="relative">
+                    <textarea
+                      value={input}
+                      onChange={handleInputChange}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSubmit(e as any);
                         }
-                        return null;
-                      })}
+                      }}
+                      placeholder="Send a message..."
+                      rows={2}
+                      className="flex w-full border border-input px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl !text-base bg-muted pb-10 dark:border-zinc-700"
+                      style={{ height: '98px' }}
+                      disabled={isChatLoading}
+                    />
+                    
+                    {/* Send Button */}
+                    <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
+                      <Button
+                        size="icon"
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border dark:border-zinc-600"
+                        onClick={handleSubmit}
+                        disabled={isChatLoading || !input.trim()}
+                        type="submit"
+                      >
+                        <ArrowUpIcon className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-            {/* Invisible element to scroll to */}
-            <div ref={messageEndRef} />
-          </div>
-        </div>
-
-        {/* Fixed Chat Form at Bottom */}
-        <div>
-          <form className="flex mx-auto px-4 bg-background py-3 md:py-4 gap-2 w-full max-w-4xl" onSubmit={handleSubmit}>
-            <div className="relative w-full flex flex-col gap-4">
-              {/* Suggestions Grid */}
-              {!hasMessages && (
-                <div className="grid sm:grid-cols-2 gap-2 w-full">
-                  {suggestions.map((suggestion) => (
-                    <motion.div
-                      key={suggestion.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="block"
-                    >
-                      <button
-                        className="inline-flex whitespace-nowrap font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground text-left border rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
-                        onClick={() => handleSuggestionClick(`${suggestion.title} ${suggestion.subtitle}`)}
-                      >
-                        <span className="font-medium">{suggestion.title}</span>
-                        <span className="text-muted-foreground">{suggestion.subtitle}</span>
-                      </button>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-
-              {/* Chat Input */}
-              <div className="relative">
-                <textarea
-                  value={input}
-                  onChange={handleInputChange}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmit(e as any);
-                    }
-                  }}
-                  placeholder="Send a message..."
-                  rows={2}
-                  className="flex w-full border border-input px-3 py-2 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-2xl !text-base bg-muted pb-10 dark:border-zinc-700"
-                  style={{ height: '98px' }}
-                  disabled={isChatLoading}
-                />
-                
-                {/* Send Button */}
-                <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
-                  <Button
-                    size="icon"
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full p-1.5 h-fit border dark:border-zinc-600"
-                    onClick={handleSubmit}
-                    disabled={isChatLoading || !input.trim()}
-                    type="submit"
-                  >
-                    <ArrowUpIcon className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
+              </form>
             </div>
-          </form>
+          </div>
+          
+          {/* Codepad or Notepad - Right side panel when shown */}
+          {showCodepad && (
+            <CodeEditorPanel 
+              chatId={chatIdRef.current || conversationId || ''} 
+              currentProblem={currentProblem}
+              onEvaluationComplete={(evaluation) => {
+                append({
+                  role: 'assistant',
+                  content: evaluation
+                });
+              }}
+              onClose={() => setShowCodepad(false)}
+            />
+          )}
+          
+          {showNotepad && (
+            <NotepadPanel onClose={() => setShowNotepad(false)} />
+          )}
         </div>
       </div>
     </main>
