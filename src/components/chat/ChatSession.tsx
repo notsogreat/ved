@@ -73,36 +73,42 @@ interface MarkdownComponentProps {
 
 const MarkdownMessage = ({ content }: { content: string }) => {
   const components = {
-    h1: ({ children, ...props }: MarkdownComponentProps) => (
+    h1: ({ children, ...props }: any) => (
       <h1 className="text-2xl font-bold mb-4 mt-6" {...props}>{children}</h1>
     ),
-    h2: ({ children, ...props }: MarkdownComponentProps) => (
+    h2: ({ children, ...props }: any) => (
       <h2 className="text-xl font-bold mb-3 mt-5" {...props}>{children}</h2>
     ),
-    h3: ({ children, ...props }: MarkdownComponentProps) => (
+    h3: ({ children, ...props }: any) => (
       <h3 className="text-lg font-bold mb-2 mt-4" {...props}>{children}</h3>
     ),
-    h4: ({ children, ...props }: MarkdownComponentProps) => (
+    h4: ({ children, ...props }: any) => (
       <h4 className="text-base font-bold mb-2 mt-3" {...props}>{children}</h4>
     ),
-    p: ({ children, ...props }: MarkdownComponentProps) => (
+    p: ({ children, ...props }: any) => (
       <p className="mb-4" {...props}>{children}</p>
     ),
-    ul: ({ children, ...props }: MarkdownComponentProps) => (
-      <ul className="list-disc list-inside mb-4" {...props}>{children}</ul>
+    ul: ({ children, ...props }: any) => (
+      <ul className="list-disc pl-6 mb-4 space-y-2" {...props}>
+        {children}
+      </ul>
     ),
-    ol: ({ children, ...props }: MarkdownComponentProps) => (
-      <ol className="list-decimal list-inside mb-4" {...props}>{children}</ol>
+    ol: ({ children, ...props }: any) => (
+      <ol className="list-decimal pl-6 mb-4 space-y-2" {...props}>
+        {children}
+      </ol>
     ),
-    li: ({ children, ...props }: MarkdownComponentProps) => (
-      <li className="mb-1" {...props}>{children}</li>
+    li: ({ children, ...props }: any) => (
+      <li className="marker:text-primary" {...props}>
+        {children}
+      </li>
     ),
-    pre: ({ children, ...props }: MarkdownComponentProps) => (
+    pre: ({ children, ...props }: any) => (
       <pre className="bg-zinc-800 text-zinc-100 rounded-md p-4 mb-4 overflow-x-auto whitespace-pre font-mono text-sm" {...props}>
         {children}
       </pre>
     ),
-    code: ({ inline, className, children, ...props }: MarkdownComponentProps & { inline?: boolean, className?: string }) => {
+    code: ({ inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '')
       return !inline && match ? (
         <SyntaxHighlighter
@@ -115,7 +121,7 @@ const MarkdownMessage = ({ content }: { content: string }) => {
           customStyle={{
             padding: '1rem',
             whiteSpace: 'pre',
-            color: '#e4e4e7', // zinc-200 equivalent
+            color: '#e4e4e7',
           }}
           {...props}
         >
@@ -127,29 +133,29 @@ const MarkdownMessage = ({ content }: { content: string }) => {
         </code>
       )
     },
-    blockquote: ({ children, ...props }: MarkdownComponentProps) => (
+    blockquote: ({ children, ...props }: any) => (
       <blockquote className="border-l-4 border-zinc-700 pl-4 mb-4 italic" {...props}>
         {children}
       </blockquote>
     ),
-    a: ({ children, ...props }: MarkdownComponentProps) => (
+    a: ({ children, ...props }: any) => (
       <a className="text-blue-400 hover:text-blue-300 underline" {...props}>
         {children}
       </a>
     ),
-    table: ({ children, ...props }: MarkdownComponentProps) => (
+    table: ({ children, ...props }: any) => (
       <div className="overflow-x-auto mb-4">
         <table className="min-w-full divide-y divide-zinc-800" {...props}>
           {children}
         </table>
       </div>
     ),
-    th: ({ children, ...props }: MarkdownComponentProps) => (
+    th: ({ children, ...props }: any) => (
       <th className="px-4 py-2 bg-zinc-800 font-medium" {...props}>
         {children}
       </th>
     ),
-    td: ({ children, ...props }: MarkdownComponentProps) => (
+    td: ({ children, ...props }: any) => (
       <td className="px-4 py-2 border-t border-zinc-800" {...props}>
         {children}
       </td>
@@ -198,7 +204,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
 
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push('/auth/login?redirect=/chat')
+      router.push('/auth/login?redirect=/chat/stream')
       return
     }
 
@@ -211,7 +217,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
         if (!response.ok) {
           if (response.status === 404) {
             // If session not found, redirect to chat home
-            router.push('/chat')
+            router.push('/chat/stream')
             return
           }
           throw new Error('Failed to load chat history')
@@ -229,7 +235,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
 
     const loadSavedCode = async () => {
       try {
-        const response = await fetch(`/api/chat/${chatId}/code`)
+        const response = await fetch(`/api/chat/${chatId}/code?language=${selectedLanguage.id}`)
         if (!response.ok) {
           throw new Error('Failed to fetch saved code')
         }
@@ -244,10 +250,14 @@ export function ChatSession({ chatId }: ChatSessionProps) {
             setSelectedLanguage(language)
           }
           toast.success('Loaded saved code')
+        } else {
+          // If no saved code exists, use the default code for the current language
+          setCode(selectedLanguage.defaultCode)
         }
       } catch (error) {
         console.error('Error loading saved code:', error)
-        // Don't show error toast as this is not critical
+        // If there's an error, use the default code for the current language
+        setCode(selectedLanguage.defaultCode)
       }
     }
 
@@ -255,7 +265,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
       loadChatHistory()
       loadSavedCode()
     }
-  }, [chatId, user, isLoading, router])
+  }, [chatId, user, isLoading, router, selectedLanguage.id])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -345,7 +355,7 @@ export function ChatSession({ chatId }: ChatSessionProps) {
     const newLanguage = languages.find(lang => lang.id === languageId)
     if (newLanguage) {
       setSelectedLanguage(newLanguage)
-      setCode(newLanguage.defaultCode)
+      // The useEffect will handle loading the code for the new language
     }
   }
 
@@ -597,9 +607,11 @@ export function ChatSession({ chatId }: ChatSessionProps) {
                 }`}
               >
                 {message.role === 'assistant' ? (
-                  <MarkdownMessage content={message.content} />
+                  <div className="prose dark:prose-invert max-w-none">
+                    <MarkdownMessage content={message.content} />
+                  </div>
                 ) : (
-                  message.content
+                  <p className="whitespace-pre-wrap">{message.content}</p>
                 )}
               </div>
             </div>

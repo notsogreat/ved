@@ -36,9 +36,9 @@ export default function LoginPage() {
     try {
       await login(email, password)
       
-      // Get the redirect URL from query params or default to /chat
+      // Get the redirect URL from query params or default to /chat/stream
       const searchParams = new URLSearchParams(window.location.search)
-      const redirect = searchParams.get('redirect') || '/chat'
+      const redirect = searchParams.get('redirect') || '/chat/stream'
       
       router.push(redirect)
     } catch (error) {

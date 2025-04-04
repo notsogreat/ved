@@ -55,12 +55,12 @@ export function ChatSidebar() {
   }, []);
 
   const handleNewChat = () => {
-    router.push('/chat');
+    router.push('/chat/stream');
     setIsOpen(false);
   };
 
   const handleSessionClick = (sessionId: string) => {
-    router.push(`/chat/${sessionId}`);
+    router.push(`/chat/stream/${sessionId}`);
     setIsOpen(false);
   };
 

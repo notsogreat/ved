@@ -63,7 +63,7 @@ export default function ChatPage() {
       }
 
       const data = await response.json()
-      router.push(`/chat/${data.sessionId}`)
+      router.push(`/chat/stream/${data.sessionId}`)
     } catch (error) {
       toast.error('Failed to start chat')
       console.error('Chat error:', error)

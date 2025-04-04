@@ -19,6 +19,10 @@ export async function GET(
     const resolvedParams = await Promise.resolve(params)
     const sessionId = resolvedParams.sessionId
 
+    // Get language from query params
+    const { searchParams } = new URL(request.url)
+    const language = searchParams.get('language')
+
     // Verify session belongs to user
     const session = await prisma.chatSession.findUnique({
       where: {
@@ -31,10 +35,11 @@ export async function GET(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    // Get latest code submission for the session
+    // Get latest code submission for the session and language
     const codeSubmission = await prisma.codeSubmission.findFirst({
       where: {
-        sessionId
+        sessionId,
+        ...(language ? { language } : {})
       },
       orderBy: {
         createdAt: 'desc'

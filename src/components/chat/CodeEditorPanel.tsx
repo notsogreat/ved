@@ -79,29 +79,29 @@ export function CodeEditorPanel({ chatId, currentProblem, onEvaluationComplete, 
   useEffect(() => {
     const loadSavedCode = async () => {
       try {
-        const response = await fetch(`/api/chat/${chatId}/code`)
+        const response = await fetch(`/api/chat/${chatId}/code?language=${selectedLanguage.id}`)
         if (!response.ok) {
           throw new Error('Failed to fetch saved code')
         }
 
         const { codeSubmission } = await response.json()
         
-        if (codeSubmission) {
+        if (codeSubmission && codeSubmission.language === selectedLanguage.id) {
           setCode(codeSubmission.code)
-          // Find and set the language
-          const language = languages.find(lang => lang.id === codeSubmission.language)
-          if (language) {
-            setSelectedLanguage(language)
-          }
           toast.success('Loaded saved code')
+        } else {
+          // If no saved code exists, use the default code for the current language
+          setCode(selectedLanguage.defaultCode)
         }
       } catch (error) {
         console.error('Error loading saved code:', error)
+        // If there's an error, use the default code for the current language
+        setCode(selectedLanguage.defaultCode)
       }
     }
 
     loadSavedCode()
-  }, [chatId])
+  }, [chatId, selectedLanguage.id])
 
   useEffect(() => {
     // Auto scroll terminal to bottom when new entries are added
@@ -114,7 +114,7 @@ export function CodeEditorPanel({ chatId, currentProblem, onEvaluationComplete, 
     const newLanguage = languages.find(lang => lang.id === languageId)
     if (newLanguage) {
       setSelectedLanguage(newLanguage)
-      setCode(newLanguage.defaultCode)
+      // The useEffect will handle loading the code for the new language
     }
   }
 

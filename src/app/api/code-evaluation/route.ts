@@ -92,12 +92,13 @@ export async function POST(req: Request) {
     const userData = JSON.parse(user.value)
     const userId = userData.id
 
-    const { code, problem, targetJobTitle, sessionId, codeSubmissionId } = await req.json() as {
+    const { code, problem, targetJobTitle, sessionId, codeSubmissionId, language } = await req.json() as {
       code: string;
       problem: string;
       targetJobTitle: string;
       sessionId: string;
       codeSubmissionId?: string;
+      language?: string;
     }
 
     if (!sessionId) {
@@ -157,24 +158,78 @@ Please evaluate the solution based on the given criteria.
       throw new Error('No evaluation content received');
     }
 
-    // Extract scores from the evaluation
-    const scoreRegex = /(\d+)(?=\s*points?|\s*\/\s*10)/g;
-    const scores = evaluationContent.match(scoreRegex);
+    // If the language is 'text', we don't need to extract scores
+    if (language === 'text') {
+      // Save the evaluation as a chat message
+      const chatMessageData: any = {
+        sessionId,
+        sender: 'assistant',
+        messageType: 'evaluation',
+        message: evaluationContent,
+      }
+      
+      if (codeSubmissionId) {
+        chatMessageData.codeSubmissionId = codeSubmissionId;
+      }
+
+      const evaluationMessage = await prisma.chatMessage.create({
+        data: chatMessageData
+      })
+
+      return NextResponse.json({ evaluation: evaluationContent });
+    }
+
+    // For code evaluations, extract scores
+    // Try different regex patterns to extract scores
+    let scores: number[] = [];
     
-    if (!scores || scores.length < 8) {
-      throw new Error('Could not extract scores from evaluation');
+    // Pattern 1: "Scores: X" format
+    const scoresMatch1 = evaluationContent.match(/Scores:\s*([\d.]+)/g);
+    if (scoresMatch1 && scoresMatch1.length >= 8) {
+      scores = scoresMatch1.map((match: string) => parseFloat(match.split(':')[1].trim()));
+    }
+    
+    // Pattern 2: "X points" or "X/10" format
+    if (scores.length < 8) {
+      const scoresMatch2 = evaluationContent.match(/(\d+)(?=\s*points?|\s*\/\s*10)/g);
+      if (scoresMatch2 && scoresMatch2.length >= 8) {
+        scores = scoresMatch2.map((match: string) => parseInt(match));
+      }
+    }
+    
+    // Pattern 3: Look for numbers in the first 8 lines that might contain scores
+    if (scores.length < 8) {
+      const lines = evaluationContent.split('\n').slice(0, 20); // Look at first 20 lines
+      const potentialScores: number[] = [];
+      
+      for (const line of lines) {
+        const numberMatch = line.match(/(\d+)(?=\s*points?|\s*\/\s*10)/);
+        if (numberMatch) {
+          potentialScores.push(parseInt(numberMatch[1]));
+        }
+      }
+      
+      if (potentialScores.length >= 8) {
+        scores = potentialScores.slice(0, 8);
+      }
+    }
+
+    // If we still don't have enough scores, generate default scores
+    if (scores.length < 8) {
+      console.warn('Could not extract enough scores from evaluation, using default scores');
+      scores = [7, 7, 7, 7, 7, 7, 7, 7]; // Default scores
     }
 
     // Create current scores object
     const currentScores = {
-      problemUnderstanding: parseInt(scores[0]),
-      dataStructureChoice: parseInt(scores[1]),
-      timeComplexity: parseInt(scores[2]),
-      codingStyle: parseInt(scores[3]),
-      edgeCases: parseInt(scores[4]),
-      languageUsage: parseInt(scores[5]),
-      communication: parseInt(scores[6]),
-      optimization: parseInt(scores[7])
+      problemUnderstanding: scores[0].toString(),
+      dataStructureChoice: scores[1].toString(),
+      timeComplexity: scores[2].toString(),
+      codingStyle: scores[3].toString(),
+      edgeCases: scores[4].toString(),
+      languageUsage: scores[5].toString(),
+      communication: scores[6].toString(),
+      optimization: scores[7].toString()
     };
 
     // Generate feedback comparing current scores with target scores

@@ -18,42 +18,14 @@ type ChatMessage = {
   content: string;
 };
 
-// Add function to check if codepad is needed
+// Simplified function to check if codepad is needed
 function needsCodepad(content: string): boolean {
-  const keywords = [
-    'Problem Title:', 
-    'Test Cases:', 
-    'Example:', 
-    'Input:', 
-    'Output:', 
-    'Constraints:',
-    'write code',
-    'implement',
-    'solution',
-    'code implementation',
-    'solve this problem',
-    'programming challenge',
-    'coding question'
-  ];
-  
-  return keywords.some(keyword => content.includes(keyword));
+  return content.toLowerCase().includes('you will need a codepad');
 }
 
-// Add function to check if notepad is needed
+// Simplified function to check if notepad is needed
 function needsNotepad(content: string): boolean {
-  const keywords = [
-    'Take notes',
-    'Notepad',
-    'Write down',
-    'System design',
-    'Draw diagram',
-    'Document your thoughts',
-    'Problem analysis',
-    'Algorithm steps',
-    'pseudocode'
-  ];
-  
-  return keywords.some(keyword => content.includes(keyword));
+  return content.toLowerCase().includes('you will need a notepad');
 }
 
 const systemPrompt = `
@@ -156,6 +128,57 @@ Remember: Focus only on generating the problem. Do not provide solutions or impl
    OR both if applicable.
 `
 
+// Helper function to get performance metrics that need improvement
+async function getMetricsNeedingImprovement(sessionId: string): Promise<string[]> {
+  const session = await prisma.chatSession.findUnique({
+    where: { id: sessionId },
+    include: { user_performance_scores: true }
+  });
+
+  if (!session?.user_performance_scores[0]) return [];
+
+  const targetScores = session.user_performance_scores[0];
+  const evaluationMessages = await prisma.chatMessage.findMany({
+    where: {
+      sessionId: sessionId,
+      messageType: 'evaluation'
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: 1
+  });
+
+  if (!evaluationMessages[0]) return [];
+
+  const content = evaluationMessages[0].message;
+  const metrics = [
+    { name: 'Problem Understanding', field: 'problemUnderstanding' },
+    { name: 'Data Structure & Algorithm Choice', field: 'dataStructureChoice' },
+    { name: 'Time and Space Complexity', field: 'timeComplexity' },
+    { name: 'Coding Style & Cleanliness', field: 'codingStyle' },
+    { name: 'Correctness & Edge Cases', field: 'edgeCases' },
+    { name: 'Language Usage', field: 'languageUsage' },
+    { name: 'Communication', field: 'communication' },
+    { name: 'Optimization', field: 'optimization' }
+  ] as const;
+
+  const needsImprovement: string[] = [];
+  
+  for (const metric of metrics) {
+    const scoreMatch = content.match(new RegExp(`${metric.name}\\s*\\((\\d+)/10\\)`));
+    if (scoreMatch) {
+      const currentScore = parseInt(scoreMatch[1]);
+      const targetScore = targetScores[metric.field];
+      if (typeof targetScore === 'number' && currentScore < targetScore) {
+        needsImprovement.push(metric.name);
+      }
+    }
+  }
+
+  return needsImprovement;
+}
+
 export async function POST(req: Request) {
   try {
     // Get user from cookie
@@ -226,6 +249,54 @@ export async function POST(req: Request) {
       }
     }
     
+    // Get user performance scores for question generation
+    let performanceScores = null;
+    let areasNeedingImprovement: string[] = [];
+    let metricsNeedingImprovement: string[] = [];
+    let session = null;
+    if (conversationId) {
+      try {
+        session = await prisma.chatSession.findUnique({
+          where: { id: conversationId },
+          include: { 
+            user_performance_scores: true,
+            messages: {
+              where: {
+                messageType: 'evaluation'
+              },
+              orderBy: {
+                createdAt: 'desc'
+              },
+              take: 3
+            }
+          }
+        });
+
+        if (session?.user_performance_scores[0]) {
+          performanceScores = session.user_performance_scores[0];
+          metricsNeedingImprovement = await getMetricsNeedingImprovement(conversationId);
+        }
+
+        // Extract areas needing improvement from evaluation messages
+        if (session?.messages) {
+          for (const msg of session.messages) {
+            const content = msg.message;
+            const match = content.match(/Areas Needing Improvement([\s\S]*?)(?=Areas of Strength|Correct Solution|$)/i);
+            if (match && match[1]) {
+              const bulletPoints = match[1]
+                .split('\n')
+                .filter(line => line.trim().startsWith('-'))
+                .map(line => line.replace('-', '').trim());
+              areasNeedingImprovement.push(...bulletPoints);
+            }
+          }
+          areasNeedingImprovement = [...new Set(areasNeedingImprovement)];
+        }
+      } catch (error) {
+        console.error('Error fetching performance scores for question generation:', error);
+      }
+    }
+    
     // Modify system prompt to prevent tool calls if we already have scores
     let effectiveSystemPrompt = systemPrompt;
     if (hasStoredScores) {
@@ -255,6 +326,41 @@ export async function POST(req: Request) {
     } else {
       // Add a guidance note to ensure the AI continues its response after calling the tool
       effectiveSystemPrompt += "\n\nVERY IMPORTANT: After calling the storeUserPerformanceScores tool, you MUST continue with your response. Do not wait for further user input. Immediately proceed to ask for the remaining required information as described in the workflow.";
+    }
+
+    // Add performance score context to the system prompt if available
+    if (performanceScores) {
+      effectiveSystemPrompt += `
+      
+User Performance Metrics:
+- Problem Understanding: ${performanceScores.problemUnderstanding}/10
+- Data Structure & Algorithm Choice: ${performanceScores.dataStructureChoice}/10
+- Time and Space Complexity: ${performanceScores.timeComplexity}/10
+- Coding Style & Cleanliness: ${performanceScores.codingStyle}/10
+- Correctness & Edge Cases: ${performanceScores.edgeCases}/10
+- Language Usage: ${performanceScores.languageUsage}/10
+- Communication: ${performanceScores.communication}/10
+- Optimization: ${performanceScores.optimization}/10
+
+${areasNeedingImprovement.length > 0 || metricsNeedingImprovement.length > 0 ? `
+IMPORTANT: Based on the feedback from your last attempted question, you need to improve in the following areas:
+
+${areasNeedingImprovement.length > 0 ? `
+Specific Areas from Last Question:
+${areasNeedingImprovement.map(area => `- ${area}`).join('\n')}` : ''}
+
+${metricsNeedingImprovement.length > 0 ? `
+Performance Metrics Below Target:
+${metricsNeedingImprovement.map(metric => `- ${metric}`).join('\n')}` : ''}
+
+IMPORTANT: Your next question is specifically designed to help you improve in these areas:
+1. You must generate a problem that directly addresses these improvement areas from your last attempt.
+2. Your two-line explanation at the start MUST explicitly state how this problem will help improve the specific areas mentioned above.
+3. The problem constraints should emphasize practicing these areas.
+` : `
+Note: ${session?.messages.length === 0 ? 'This will be your first question. It will help establish a baseline for your skills.' : 'Your last attempt showed balanced performance across all areas. This next question will help maintain your skills while gradually increasing difficulty.'}
+`}
+`;
     }
     
     // Create properly formatted messages for AI SDK

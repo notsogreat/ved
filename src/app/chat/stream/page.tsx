@@ -15,6 +15,9 @@ import { useChat } from '@ai-sdk/react'
 import Editor from '@monaco-editor/react'
 import { CodeEditorPanel } from "@/components/chat/CodeEditorPanel"
 import { NotepadPanel } from "@/components/chat/NotepadPanel"
+import ReactMarkdown from 'react-markdown'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 const suggestions = [
   { 
@@ -45,6 +48,105 @@ const MESSAGE_STORAGE_PREFIX = 'chat_messages_'
 // Define props interface
 interface StreamChatPageProps {
   initialConversationId?: string
+}
+
+// Add MarkdownMessage component before the StreamChatPage component
+const MarkdownMessage = ({ content }: { content: string }) => {
+  const components = {
+    h1: ({ children, ...props }: any) => (
+      <h1 className="text-2xl font-bold mb-4 mt-6" {...props}>{children}</h1>
+    ),
+    h2: ({ children, ...props }: any) => (
+      <h2 className="text-xl font-bold mb-3 mt-5" {...props}>{children}</h2>
+    ),
+    h3: ({ children, ...props }: any) => (
+      <h3 className="text-lg font-bold mb-2 mt-4" {...props}>{children}</h3>
+    ),
+    h4: ({ children, ...props }: any) => (
+      <h4 className="text-base font-bold mb-2 mt-3" {...props}>{children}</h4>
+    ),
+    p: ({ children, ...props }: any) => (
+      <p className="mb-4" {...props}>{children}</p>
+    ),
+    ul: ({ children, ...props }: any) => (
+      <ul className="list-disc pl-6 mb-4 space-y-2" {...props}>
+        {children}
+      </ul>
+    ),
+    ol: ({ children, ...props }: any) => (
+      <ol className="list-decimal pl-6 mb-4 space-y-2" {...props}>
+        {children}
+      </ol>
+    ),
+    li: ({ children, ...props }: any) => (
+      <li className="marker:text-primary" {...props}>
+        {children}
+      </li>
+    ),
+    pre: ({ children, ...props }: any) => (
+      <pre className="bg-zinc-800 text-zinc-100 rounded-md p-4 mb-4 overflow-x-auto whitespace-pre font-mono text-sm" {...props}>
+        {children}
+      </pre>
+    ),
+    code: ({ inline, className, children, ...props }: any) => {
+      const match = /language-(\w+)/.exec(className || '')
+      return !inline && match ? (
+        <SyntaxHighlighter
+          language={match[1]}
+          style={vscDarkPlus}
+          PreTag="div"
+          className="rounded-md mb-4"
+          showLineNumbers={false}
+          wrapLines={true}
+          customStyle={{
+            padding: '1rem',
+            whiteSpace: 'pre',
+            color: '#e4e4e7',
+          }}
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      ) : (
+        <code className="bg-zinc-800 text-zinc-100 rounded px-1.5 py-0.5 text-sm" {...props}>
+          {children}
+        </code>
+      )
+    },
+    blockquote: ({ children, ...props }: any) => (
+      <blockquote className="border-l-4 border-zinc-700 pl-4 mb-4 italic" {...props}>
+        {children}
+      </blockquote>
+    ),
+    a: ({ children, ...props }: any) => (
+      <a className="text-blue-400 hover:text-blue-300 underline" {...props}>
+        {children}
+      </a>
+    ),
+    table: ({ children, ...props }: any) => (
+      <div className="overflow-x-auto mb-4">
+        <table className="min-w-full divide-y divide-zinc-800" {...props}>
+          {children}
+        </table>
+      </div>
+    ),
+    th: ({ children, ...props }: any) => (
+      <th className="px-4 py-2 bg-zinc-800 font-medium" {...props}>
+        {children}
+      </th>
+    ),
+    td: ({ children, ...props }: any) => (
+      <td className="px-4 py-2 border-t border-zinc-800" {...props}>
+        {children}
+      </td>
+    ),
+  }
+
+  return (
+    <ReactMarkdown components={components}>
+      {content}
+    </ReactMarkdown>
+  )
 }
 
 export default function StreamChatPage({ initialConversationId }: StreamChatPageProps = {}) {
@@ -222,26 +324,15 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         const messageContent = message.content || '';
         
         // Check for codepad needs - use a more aggressive detection approach
-        if (messageContent.includes('you will need a codepad') ||
-            messageContent.includes('you need a codepad') ||
-            messageContent.includes('codepad to write') || 
-            messageContent.includes('write code') || 
-            messageContent.includes('implement') || 
-            messageContent.includes('solution') ||
-            messageContent.includes('Problem Title:') ||
-            messageContent.includes('Test Cases:')) {
+        if (shouldShowCodepad(messageContent)) {
           setShowCodepad(true);
+          setShowNotepad(false); // Close notepad if codepad is opened
         }
         
         // Check for notepad needs
-        if (messageContent.includes('you will need a notepad') ||
-            messageContent.includes('you need a notepad') ||
-            messageContent.includes('notepad to document') ||
-            messageContent.includes('take notes') || 
-            messageContent.includes('document your') ||
-            messageContent.includes('system design') ||
-            messageContent.includes('pseudocode')) {
+        if (shouldShowNotepad(messageContent)) {
           setShowNotepad(true);
+          setShowCodepad(false); // Close codepad if notepad is opened
         }
         
         // Get the current ID
@@ -415,22 +506,16 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     
   }, [input, isChatLoading, aiHandleSubmit]);
 
-  // Add a more aggressive detector with case-insensitive checks
+  // Simplified detector functions
   const shouldShowCodepad = (content: string): boolean => {
-    const lowerContent = content.toLowerCase();
-    return (
-      lowerContent.includes('for this problem, you will need a codepad') ||
-      lowerContent.includes('you will need a codepad') ||
-      lowerContent.includes('you need a codepad') ||
-      lowerContent.includes('problem title:') ||
-      (lowerContent.includes('test case') || lowerContent.includes('example:') || lowerContent.includes('input:')) ||
-      (lowerContent.includes('implement') && lowerContent.includes('solution')) ||
-      (lowerContent.includes('algorithm') && lowerContent.includes('implement')) ||
-      (lowerContent.includes('coding') && lowerContent.includes('interview'))
-    );
+    return content.toLowerCase().includes('you will need a codepad');
   };
 
-  // Add a helper to check if a problem description is complete
+  const shouldShowNotepad = (content: string): boolean => {
+    return content.toLowerCase().includes('you will need a notepad');
+  };
+
+  // Helper function to check if a problem description is complete
   const isCompleteProblem = (content: string): boolean => {
     const lowerContent = content.toLowerCase();
     
@@ -450,18 +535,6 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     );
   };
 
-  // Add notepad detector as well
-  const shouldShowNotepad = (content: string): boolean => {
-    const lowerContent = content.toLowerCase();
-    return (
-      lowerContent.includes('for this problem, you will need a notepad') ||
-      lowerContent.includes('you will need a notepad') ||
-      lowerContent.includes('you need a notepad') ||
-      lowerContent.includes('take notes') ||
-      (lowerContent.includes('system design') && lowerContent.includes('document'))
-    );
-  };
-
   // Updated hook to use both functions
   useEffect(() => {
     // Check all assistant messages to see if we need to show codepad or notepad
@@ -471,6 +544,7 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
 
         if (shouldShowCodepad(message.content)) {
           setShowCodepad(true);
+          setShowNotepad(false); // Close notepad if codepad is opened
           
           // Check if this message has a problem title but hasn't been saved explicitly
           if (message.content.includes('Problem Title:') && 
@@ -516,6 +590,7 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         
         if (shouldShowNotepad(message.content)) {
           setShowNotepad(true);
+          setShowCodepad(false); // Close codepad if notepad is opened
         }
       }
     }
@@ -622,7 +697,10 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
                   size="sm"
                   variant="outline"
                   className="flex items-center space-x-1"
-                  onClick={() => setShowCodepad(true)}
+                  onClick={() => {
+                    setShowCodepad(true);
+                    setShowNotepad(false);
+                  }}
                 >
                   <Code className="h-3.5 w-3.5 mr-1" />
                   <span>Codepad</span>
@@ -631,7 +709,10 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
                   size="sm"
                   variant="outline"
                   className="flex items-center space-x-1"
-                  onClick={() => setShowNotepad(true)}
+                  onClick={() => {
+                    setShowNotepad(true);
+                    setShowCodepad(false);
+                  }}
                 >
                   <FileText className="h-3.5 w-3.5 mr-1" />
                   <span>Notepad</span>
@@ -660,15 +741,12 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
                         <div className="font-medium text-sm">
                           {message.role === 'user' ? 'You' : 'AI Assistant'}
                         </div>
-                        <div className="prose dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:mb-4 prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6 prose-ul:space-y-2 prose-li:marker:text-primary">
-                          {message.parts?.map((part, i) => {
-                            if (part.type === 'text') {
-                              return part.text.split('\n').map((paragraph, j) => (
-                                <p key={`${message.id}-${i}-${j}`} className="whitespace-pre-wrap">{paragraph}</p>
-                              ));
-                            }
-                            return null;
-                          })}
+                        <div className="prose dark:prose-invert max-w-none">
+                          {message.role === 'assistant' ? (
+                            <MarkdownMessage content={message.content || ''} />
+                          ) : (
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -757,7 +835,17 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
           )}
           
           {showNotepad && (
-            <NotepadPanel onClose={() => setShowNotepad(false)} />
+            <NotepadPanel 
+              chatId={chatIdRef.current || conversationId || ''} 
+              currentProblem={currentProblem}
+              onEvaluationComplete={(evaluation) => {
+                append({
+                  role: 'assistant',
+                  content: evaluation
+                });
+              }}
+              onClose={() => setShowNotepad(false)} 
+            />
           )}
         </div>
       </div>

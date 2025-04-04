@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card"
 import { Header } from "@/components/layout/header"
 import { Circle } from "lucide-react"
+import { toast } from "sonner"
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -42,31 +43,16 @@ export default function SignUpPage() {
         body: JSON.stringify({ name, email, password }),
       })
 
-      const data = await response.json()
-
       if (!response.ok) {
+        const data = await response.json()
         throw new Error(data.error || 'Failed to sign up')
       }
 
-      // After successful signup, log the user in
-      const loginResponse = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      })
-
-      const loginData = await loginResponse.json()
-
-      if (!loginResponse.ok) {
-        throw new Error(loginData.error || 'Failed to login after signup')
-      }
-
       // Redirect to chat page
-      router.push('/chat')
+      router.push('/chat/stream')
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to sign up')
+      toast.error(error instanceof Error ? error.message : 'Failed to sign up')
+      console.error('Signup error:', error)
     } finally {
       setIsLoading(false)
     }
