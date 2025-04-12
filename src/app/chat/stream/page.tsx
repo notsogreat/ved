@@ -42,9 +42,6 @@ const suggestions = [
   }
 ]
 
-// Define message storage keys
-const MESSAGE_STORAGE_PREFIX = 'chat_messages_'
-
 // Define props interface
 interface StreamChatPageProps {
   initialConversationId?: string
@@ -158,62 +155,14 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
   const isRouteChanging = useRef(false)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const chatIdRef = useRef<string | null>(null)
-  const [storedMessages, setStoredMessages] = useState<any[]>([])
-  const savedMessageIdsRef = useRef<Set<string>>(new Set())
   const [showCodepad, setShowCodepad] = useState(false)
   const [showNotepad, setShowNotepad] = useState(false)
   const [isEvaluating, setIsEvaluating] = useState(false)
   const [currentProblem, setCurrentProblem] = useState("")
-  const [pendingSaves, setPendingSaves] = useState<{[key: string]: NodeJS.Timeout}>({})
   const [messagesLoaded, setMessagesLoaded] = useState(false)
   
-  // Function to save message with delay
-  const saveMessageWithDelay = useCallback(async (currentId: string, message: string, role: string, messageId: string) => {
-    try {
-      // Wait a short time to ensure message is complete (3 seconds)
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Save assistant message to database
-      await fetch(`/api/chat/${currentId}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message,
-          role
-        })
-      });
-      
-      console.log(`Successfully saved message: ${message.substring(0, 40)}...`);
-    } catch (err) {
-      console.error("Error saving message to database:", err);
-    } finally {
-      // Clear from pending saves
-      setPendingSaves(prev => {
-        const newPending = {...prev};
-        delete newPending[messageId];
-        return newPending;
-      });
-    }
-  }, []);
-  
-  // Load stored messages from localStorage
-  const loadStoredMessages = useCallback((id: string) => {
-    try {
-      const key = `${MESSAGE_STORAGE_PREFIX}${id}`;
-      const stored = localStorage.getItem(key);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.length > 0) {
-          setStoredMessages(parsed);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading stored messages:", error);
-    }
-  }, []);
-  
-  // Add function to fetch messages from database
-  const fetchMessagesFromDatabase = useCallback(async (id: string) => {
+  // Simplified message loading function
+  const loadMessages = useCallback(async (id: string) => {
     try {
       const response = await fetch(`/api/chat/${id}/messages`);
       if (!response.ok) {
@@ -221,32 +170,12 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
       }
       
       const fetchedMessages = await response.json();
-      
-      if (fetchedMessages && fetchedMessages.length > 0) {
-        // Transform to format expected by useChat
-        const formattedMessages = fetchedMessages.map((msg: any) => ({
-          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          role: msg.role,
-          content: msg.content,
-          parts: [{ type: 'text', text: msg.content }]
-        }));
-        
-        // Set the messages in the AI SDK
-        setStoredMessages(formattedMessages);
-        
-        // Mark all these messages as already saved in the database
-        // This prevents re-saving them when the useEffect runs
-        fetchedMessages.forEach((msg: any) => {
-          const stableMessageId = `db-${msg.role}-${msg.content.length}`;
-          savedMessageIdsRef.current.add(stableMessageId);
-        });
-      }
-      
-      // Mark messages as loaded
       setMessagesLoaded(true);
+      return fetchedMessages;
     } catch (error) {
-      console.error('Error fetching messages from database:', error);
-      setMessagesLoaded(true); // Mark as loaded even on error
+      console.error('Error loading messages:', error);
+      setMessagesLoaded(true);
+      return [];
     }
   }, []);
   
@@ -262,20 +191,14 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
       if (id) {
         chatIdRef.current = id;
         setConversationId(id);
-        
-        // Load stored messages for this conversation
-        loadStoredMessages(id);
-        
-        // Fetch messages from the database
-        fetchMessagesFromDatabase(id);
+        loadMessages(id);
       } else {
-        // No ID means a new conversation, so mark messages as loaded
         setMessagesLoaded(true);
       }
     }
-  }, [initialConversationId, params, loadStoredMessages, fetchMessagesFromDatabase]);
+  }, [initialConversationId, params, loadMessages]);
   
-  // Setup AI SDK useChat hook
+  // Setup AI SDK useChat hook with simplified message handling
   const { 
     messages, 
     input, 
@@ -288,122 +211,56 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
   } = useChat({
     api: '/api/chat/stream',
     id: chatIdRef.current || conversationId || undefined,
-    initialMessages: storedMessages.map(msg => ({
-      id: msg.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      role: msg.role,
-      content: msg.content,
-      parts: [{ type: 'text', text: msg.content }]
-    })),
     body: {
       conversationId: chatIdRef.current || conversationId
     },
-    maxSteps: 5, // Allow multiple steps for tool calling
+    maxSteps: 5,
     onResponse: (response) => {
       if (!response.ok) {
         toast.error('Failed to get response');
       }
     },
-    onToolCall: async (tool) => {
-      // Only log tool name for clarity if in development
-      if (tool.toolCall && process.env.NODE_ENV === 'development') {
-        console.log(`[TOOL] Received tool call: ${tool.toolCall.toolName || 'unknown'}`);
-        
-        // For server-side tools, we just acknowledge and let the server handle it
-        if (tool.toolCall.toolName === "storeUserPerformanceScores") {
-          return null; // Server will handle this tool execution
-        }
-      }
-      
-      // If we get here, it's a client-side tool we don't recognize
-      console.warn("[TOOL] Unknown tool call received");
-      return "Unknown tool";
-    },
     onFinish: async (message) => {
       try {
-        // Check if codepad or notepad is needed based on the message content
+        // Check if codepad or notepad is needed
         const messageContent = message.content || '';
         
-        // Check for codepad needs - use a more aggressive detection approach
         if (shouldShowCodepad(messageContent)) {
           setShowCodepad(true);
-          setShowNotepad(false); // Close notepad if codepad is opened
+          setShowNotepad(false);
         }
         
-        // Check for notepad needs
         if (shouldShowNotepad(messageContent)) {
           setShowNotepad(true);
-          setShowCodepad(false); // Close codepad if notepad is opened
+          setShowCodepad(false);
         }
-        
+
         // Get the current ID
         const currentId = chatIdRef.current || conversationId;
         if (!currentId) {
           console.error('No conversation ID available');
           return;
         }
-        
-        // Get message content safely
-        let messageContentSafe = '';
-        if (message.parts && message.parts.length > 0) {
-          // Join all text parts and filter out empty ones
-          messageContentSafe = message.parts
-            .map(part => part.type === 'text' ? part.text : '')
-            .filter(text => text.trim() !== '')
-            .join('\n');
-        } else if (message.content) {
-          messageContentSafe = message.content;
-        }
-        
-        // Skip empty messages or messages that only contain whitespace
-        if (!messageContentSafe || messageContentSafe.trim() === '') {
-          return;
-        }
-        
-        // Generate a more stable message ID for tracking
-        const stableMessageId = `${message.id}-${messageContentSafe.length}`;
-        
-        // Only save if not already saved with the same content length
-        if (!savedMessageIdsRef.current.has(stableMessageId) && 
-            !savedMessageIdsRef.current.has(message.id) &&
-            !savedMessageIdsRef.current.has(`db-assistant-${messageContentSafe.length}`)) {
-          // We only want to save complete messages
-          // For coding problems, ensure the whole problem is included
-          const isComplete = !messageContentSafe.includes('Problem Title:') || 
-                           (messageContentSafe.includes('Problem Title:') && 
-                            isCompleteProblem(messageContentSafe));
-          
-          if (isComplete) {
-            // Mark this message as saved
-            savedMessageIdsRef.current.add(stableMessageId);
-            
-            // Also mark the original message ID to prevent duplicates
-            savedMessageIdsRef.current.add(message.id);
-            
-            // Schedule message saving with delay
-            console.log(`Scheduling save for message: ${messageContentSafe.substring(0, 40)}...`);
-            
-            // Cancel any existing pending save for this message
-            if (pendingSaves[stableMessageId]) {
-              clearTimeout(pendingSaves[stableMessageId]);
-            }
-            
-            // Create new save timeout
-            const saveTimeout = setTimeout(() => {
-              saveMessageWithDelay(currentId, messageContentSafe, 'assistant', stableMessageId);
-            }, 1000);
-            
-            // Store the timeout reference
-            setPendingSaves(prev => ({
-              ...prev,
-              [stableMessageId]: saveTimeout
-            }));
-          }
+
+        // Save assistant message to database
+        if (message.content) {
+          fetch(`/api/chat/${currentId}/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              message: message.content,
+              role: 'assistant'
+            })
+          }).catch(err => {
+            console.error("Error saving assistant message:", err);
+            toast.error("Failed to save message");
+          });
         }
       } catch (error) {
         console.error('Error in onFinish:', error);
       }
     },
-    // Prepare the request body to include conversation history
+    // Add back the experimental_prepareRequestBody to handle message history
     experimental_prepareRequestBody: ({ messages, requestBody }) => {
       // Get the latest user message
       const latestMessage = messages.length > 0 ? 
@@ -419,11 +276,6 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         content: msg.content
       }));
       
-      // Log only the message content for debugging in development
-      if (currentMessage && process.env.NODE_ENV === 'development') {
-        console.log(`Sending message: "${currentMessage.substring(0, 40)}${currentMessage.length > 40 ? '...' : ''}"`);
-      }
-      
       // Ensure conversation history is included in the request body
       return {
         ...(requestBody || {}),
@@ -434,14 +286,13 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     }
   });
 
-  // Our custom submit handler to ensure session creation happens first
+  // Simplified submit handler
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isChatLoading) return;
     
     // If we don't have a conversation ID yet, create one first
     if (!chatIdRef.current) {
-      // Generate new UUID
       const newId = uuidv4();
       
       try {
@@ -466,7 +317,7 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
         await new Promise(resolve => setTimeout(resolve, 100));
         isRouteChanging.current = false;
         
-        // Generate title - only once
+        // Generate title in background
         fetch('/api/session/generate-title', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -482,24 +333,19 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
       }
     }
     
-    // Save user message to database
+    // Save user message to database in background
     const currentId = chatIdRef.current!;
-    try {
-      await fetch(`/api/chat/${currentId}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: input,
-          role: 'user'
-        })
-      });
-    } catch (err) {
-      console.error("Error saving user message to database:", err);
-      // Continue even if database save fails
-    }
-    
-    // Don't update local state - let AI SDK handle the message state
-    // This will prevent duplicate messages from appearing
+    fetch(`/api/chat/${currentId}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        message: input,
+        role: 'user'
+      })
+    }).catch(err => {
+      console.error("Error saving user message:", err);
+      toast.error("Failed to save message");
+    });
     
     // Let AI SDK handle the submission
     aiHandleSubmit(e);
@@ -515,82 +361,19 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     return content.toLowerCase().includes('you will need a notepad');
   };
 
-  // Helper function to check if a problem description is complete
-  const isCompleteProblem = (content: string): boolean => {
-    const lowerContent = content.toLowerCase();
-    
-    // Must have a problem title
-    if (!lowerContent.includes('problem title:')) {
-      return false;
-    }
-    
-    // Must have at least one of these sections to be considered complete
-    return (
-      lowerContent.includes('test case') || 
-      lowerContent.includes('example:') || 
-      lowerContent.includes('input:') ||
-      lowerContent.includes('output:') ||
-      lowerContent.includes('constraints:') ||
-      (lowerContent.includes('given') && lowerContent.includes('return'))
-    );
-  };
-
   // Updated hook to use both functions
   useEffect(() => {
     // Check all assistant messages to see if we need to show codepad or notepad
     for (const message of messages) {
       if (message.role === 'assistant' && message.content) {
-        // Remove verbose logging and only check functionality
-
         if (shouldShowCodepad(message.content)) {
           setShowCodepad(true);
-          setShowNotepad(false); // Close notepad if codepad is opened
-          
-          // Check if this message has a problem title but hasn't been saved explicitly
-          if (message.content.includes('Problem Title:') && 
-              isCompleteProblem(message.content)) {
-            
-            // Generate a more stable message ID for tracking
-            const stableMessageId = `${message.id}-${message.content.length}`;
-            
-            // Only save if not already marked as saved
-            if (!savedMessageIdsRef.current.has(stableMessageId) &&
-                !savedMessageIdsRef.current.has(`db-assistant-${message.content.length}`)) {
-              
-              // Mark this message as saved
-              savedMessageIdsRef.current.add(stableMessageId);
-              savedMessageIdsRef.current.add(message.id);
-              
-              console.log(`Saving problem from useEffect: ${message.content.substring(0, 40)}...`);
-              
-              // Cancel any existing pending save for this message
-              if (pendingSaves[stableMessageId]) {
-                clearTimeout(pendingSaves[stableMessageId]);
-              }
-              
-              // Get the current conversation ID
-              const currentId = chatIdRef.current || conversationId;
-              
-              // Only proceed if we have a valid conversation ID
-              if (currentId) {
-                // Create new save timeout
-                const saveTimeout = setTimeout(() => {
-                  saveMessageWithDelay(currentId, message.content, 'assistant', stableMessageId);
-                }, 1000);
-                
-                // Store the timeout reference
-                setPendingSaves(prev => ({
-                  ...prev,
-                  [stableMessageId]: saveTimeout
-                }));
-              }
-            }
-          }
+          setShowNotepad(false);
         }
         
         if (shouldShowNotepad(message.content)) {
           setShowNotepad(true);
-          setShowCodepad(false); // Close codepad if notepad is opened
+          setShowCodepad(false);
         }
       }
     }
@@ -603,7 +386,7 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     
     // Scroll to bottom when messages change
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, conversationId, saveMessageWithDelay, pendingSaves]);
+  }, [messages]);
 
   // Display error if any
   useEffect(() => {
@@ -621,22 +404,6 @@ export default function StreamChatPage({ initialConversationId }: StreamChatPage
     }, 100);
   }, [setInput, handleSubmit]);
   
-  // Cleanup pending saves on unmount
-  useEffect(() => {
-    return () => {
-      // Clear all pending timeouts
-      Object.values(pendingSaves).forEach(timeout => clearTimeout(timeout));
-    };
-  }, [pendingSaves]);
-
-  // Update currentProblem when receiving a new problem from the AI
-  useEffect(() => {
-    const lastMessage = messages[messages.length - 1]
-    if (lastMessage?.role === 'assistant' && lastMessage.content.includes('Problem Title:')) {
-      setCurrentProblem(lastMessage.content)
-    }
-  }, [messages])
-
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
